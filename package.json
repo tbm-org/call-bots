@@ -1,6 +1,6 @@
 {
   "name": "call-bots",
-  "version": "0.7.2",
+  "version": "0.7.3",
   "private": true,
   "type": "module",
   "description": "Put synthetic audio and video bots into Aloqa and Google Meet calls",
