@@ -274,9 +274,7 @@ try {
     !(await page.locator('#meetBar').isVisible()))
 
   await page.locator('#link').fill('https://meet.google.com/abc-defg-hij')
-  check('a Meet link is detected before starting',
-    (await page.locator('#platformPill').textContent()) === 'Platform Google Meet')
-  check('and only then does one line about Meet appear',
+  check('a Meet link shows one line about Meet',
     await page.locator('#meetBar').isVisible())
   // Guests need nothing set up, and there is nothing else: no accounts, no
   // panel to manage them, no mode to pick.

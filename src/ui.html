@@ -356,7 +356,6 @@
 <header>
   <div class="brand"><div class="dot"></div>Call Bots</div>
   <span id="statusPill" class="pill">idle</span>
-  <span id="platformPill" class="chip" hidden>Platform <b>–</b></span>
   <div class="spacer"></div>
   <span id="sysNet" class="chip" hidden title="This computer's network throughput">↓ <b>–</b> ↑ <b>–</b></span>
   <span id="sysCpu" class="chip" hidden title="This computer's CPU load">CPU <b>–</b></span>
@@ -616,9 +615,6 @@ botLabelInput.oninput = () => {
 const syncPlatformUi = () => {
   const id = platformId()
   const caps = capabilities()
-  const platform = $('#platformPill')
-  platform.hidden = id === null
-  if (id) platform.querySelector('b').textContent = id === 'meet' ? 'Google Meet' : 'Aloqa'
   $('#codecToggle').hidden = !caps.codecs
   $('#allbar [data-capability="screen"]').hidden = !caps.screen
   $('#allbar [data-capability="codecs"]').hidden = !caps.codecs
