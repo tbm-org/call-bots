@@ -6,6 +6,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { bundledChromiumPath, googleChromePath, systemChromePath } from './browser.mjs'
+import { setGuestVolumes, volumePercent } from './audio.mjs'
 import { onLog, plain as log } from './log.mjs'
 import { machineProfile, systemUsage } from './machine.mjs'
 import { Roster } from './orchestrator.mjs'
@@ -294,6 +295,10 @@ const runAction = async (slug, action, value) => {
   if (action === 'codec' && capabilities?.codecs === false) {
     throw new Error(`codec controls are unavailable for ${label}`)
   }
+  if (action === 'volume') {
+    volumePercent(value)
+    if (!capabilities?.volume) throw new Error(`volume controls are unavailable for ${label}`)
+  }
   // Validated before the loop: half a fleet switched and then a 400 about the
   // other half would leave no way to tell what actually happened.
   const codecArgs =
@@ -318,6 +323,7 @@ const runAction = async (slug, action, value) => {
         ? roster.byBatch(batch).filter((guest) => guest.state === 'in-call')
         : [roster.bySlug(slug)].filter(Boolean)
   if (targets.length === 0) throw new Error(`no bot for "${slug}"`)
+  if (action === 'volume') return setGuestVolumes(targets, value)
   const results = {}
   for (const guest of targets) {
     switch (action) {

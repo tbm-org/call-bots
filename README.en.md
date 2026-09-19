@@ -41,6 +41,21 @@ to localhost, so on a server reach it through a tunnel:
 ssh -L 4610:127.0.0.1:4610 <user>@<server>
 ```
 
+## Outgoing volume in Aloqa
+
+Click the speaker icon on a bot card or **Volume** in the **All bots** bar to reveal the slider.
+It stays collapsed by default. Adjust what other participants hear, live from
+**0–200%**. **100%** is the original level;
+**0%** sends silence. Above 100% amplifies the signal and may distort loud
+recordings. The microphone mute button stays independent: changing a muted
+bot's volume does not unmute it.
+
+The all-bots slider sets the same level for the bots currently in the call;
+**Mixed** means their levels differ. Each bot keeps its level through microphone
+restarts and automatic rejoins. Newly added bots start at 100%, and settings
+are not saved across sessions. Volume control is available in the Aloqa
+dashboard only.
+
 ## Google Meet
 
 Meet is a rare guest here, so it stays out of sight: paste a
@@ -121,8 +136,9 @@ Meet ever shows something else, the bot says so rather than timing out.
 
 - **Camera** — footage of a person at a desk, 1920x1080 at 30fps. Five clips,
   one per bot, so a call looks like different people.
-- **Microphone** — a recording of a real man talking, continuously. Five
-  voices, one per bot.
+- **Microphone** — lively real recordings of Neil deGrasse Tyson and Shakira
+  (English), and Efim Shifrin, Valdis Pelsh, and Roman Kartsev (Russian).
+  Each bot loops one of the five excerpts: curiosity, comedy, and playful stories.
 - **Screen share (Aloqa)** — a wildflower meadow at 1920x1080, captioned with
   the bot's name and a clock.
 
@@ -131,6 +147,11 @@ All of it ships with the app. To use your own, drop files in
 the shared screen, or run `node scripts/import-videos.mjs <folder> --bundle` to
 replace the camera clips. Sources and licences are in
 [media/CREDITS.md](media/CREDITS.md).
+
+To rebuild the bundled audio from the original recordings, run `npm run voices`
+with FFmpeg installed. Speakers, sources, and excerpt boundaries are recorded in
+[media/voices.json](media/voices.json). New bots pick up the rebuilt files;
+custom `voice-1.wav` … `voice-5.wav` files in the fixtures folder take priority.
 
 ## Good to know
 
@@ -182,8 +203,7 @@ replace the camera clips. Sources and licences are in
   while it stays open; use **Call Bots → Check for Updates…** to check
   immediately.
 - **Selector drift** is isolated in `src/platforms/aloqa.mjs` and
-  `src/platforms/meet.mjs`. `npm run test:platforms` checks both adapters
-  against mock pages; a real call remains the final acceptance check.
+  `src/platforms/meet.mjs`. Verify changes in a real call.
 
 ## Releasing a Mac version
 
@@ -193,6 +213,6 @@ From a clean `main` branch, pass the new version to one command:
 npm run release:mac -- 0.3.0
 ```
 
-It runs the tests, builds and signs the ZIP and `appcast.xml`, then publishes
+It builds and signs the ZIP and `appcast.xml`, then publishes
 both as GitHub Release assets. Installed apps read the feed from the stable
 `releases/latest/download/appcast.xml` URL.

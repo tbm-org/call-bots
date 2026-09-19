@@ -67,6 +67,7 @@ export const capabilities = Object.freeze({
   screen: true,
   rtc: true,
   codecs: false,
+  volume: false,
 })
 
 export const SEL = {

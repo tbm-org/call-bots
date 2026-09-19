@@ -172,6 +172,14 @@
   .allbar .lead { font-size: 12px; font-weight: 650; color: var(--faint); text-transform: uppercase; letter-spacing: .4px; }
   .allbar .btn { height: 30px; padding: 0 11px; font-size: 12.5px; }
 
+  [data-volume-toggle]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .volume { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; }
+  .cbody .volume { margin-top: 12px; }
+  .volume input { min-width: 60px; width: 100%; flex: 1; accent-color: var(--accent); cursor: pointer; }
+  .volume input:disabled { opacity: .4; cursor: default; }
+  .volume output { min-width: 40px; text-align: right; font-variant-numeric: tabular-nums; }
+  .allbar .volume { flex: 0 1 242px; }
+
   /* The codecs the NEXT send arrives with, standing with the devices they
      belong to: what a bot joins with is one decision, and the camera it
      arrives on is part of it. Out of the flow until asked for, so the bar
@@ -420,6 +428,14 @@
       <span class="lead">All bots</span>
       <button class="btn" data-all="unmute">Unmute</button>
       <button class="btn" data-all="mute">Mute</button>
+      <button type="button" class="btn" data-volume-toggle="all" data-capability="volume"
+        aria-expanded="false" aria-controls="audio-all" title="Adjust volume for all bots">Volume</button>
+      <div class="volume" id="audio-all" data-volume-control="all" hidden
+        title="Outgoing microphone level. Above 100% can distort loud audio.">
+        <input id="volume-all" data-volume="all" type="range" min="0" max="200" step="1" value="100"
+          aria-label="All bots volume">
+        <output for="volume-all">100%</output>
+      </div>
       <button class="btn" data-all="cam-on">Cameras on</button>
       <button class="btn" data-all="cam-off">Cameras off</button>
       <span class="capset" data-capability="screen">
@@ -469,6 +485,7 @@ const I = {
   share: svg('<rect width="20" height="14" x="2" y="3" rx="2"/><line x1="8" x2="16" y1="21" y2="21"/><line x1="12" x2="12" y1="17" y2="21"/>'),
   leave: svg('<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/>'),
   pulse: svg('<polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>'),
+  audio: svg('<polygon points="11 5 6 9 3 9 3 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.08M19.07 4.93a10 10 0 0 1 0 14.14"/>'),
   pin: svg('<path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/>'),
 }
 
@@ -492,10 +509,10 @@ const post = async (url, body) => {
   return data
 }
 
-const FULL_CAPABILITIES = Object.freeze({ mic: true, camera: true, screen: true, rtc: true, codecs: true })
+const FULL_CAPABILITIES = Object.freeze({ mic: true, camera: true, screen: true, rtc: true, codecs: true, volume: true })
 // What the server will say once a Meet session exists — mirrored here so the
 // controls Meet cannot honour never flash into view while a link is typed.
-const MEET_CAPABILITIES = Object.freeze({ mic: true, camera: true, screen: true, rtc: true, codecs: false })
+const MEET_CAPABILITIES = Object.freeze({ mic: true, camera: true, screen: true, rtc: true, codecs: false, volume: false })
 const platformFromLink = () => {
   try {
     const url = new URL($('#link').value.trim())
@@ -618,6 +635,7 @@ const syncPlatformUi = () => {
   $('#codecToggle').hidden = !caps.codecs
   $('#allbar [data-capability="screen"]').hidden = !caps.screen
   $('#allbar [data-capability="codecs"]').hidden = !caps.codecs
+  $('#allbar [data-capability="volume"]').hidden = !caps.volume
   if (!caps.codecs) {
     $('#joinCodecs').hidden = true
     $('#codecToggle').setAttribute('aria-expanded', 'false')
@@ -965,6 +983,143 @@ const placeCards = (grid, cards) => {
 }
 
 /* ---------- bot cards ---------- */
+/* ---------- outgoing microphone volume ---------- */
+const newVolumeUi = (session) => ({
+  session, pending: new Map(), drafts: new Map(), confirmed: new Map(),
+  dragging: new Set(), expanded: new Set(), sending: false, timer: null, bulkValue: 100,
+})
+let volumeUi = newVolumeUi(undefined)
+
+const effectiveVolume = (guest) => {
+  const confirmed = volumeUi.confirmed.get(guest.slug)
+  // A cached SSE snapshot can predate the POST response. Revisions also let a
+  // newer update from another dashboard supersede our last acknowledgement.
+  if (confirmed && confirmed.revision > (guest.volumeRevision ?? 0)) return confirmed.volume
+  return guest.volume ?? 100
+}
+
+const renderVolumes = () => {
+  const guests = S.state?.session?.guests ?? []
+  const running = S.state?.status === 'running'
+  const supported = capabilities().volume === true
+  const eligible = guests.filter((guest) => guest.state === 'in-call' && guest.volumeAvailable)
+  for (const button of document.querySelectorAll('[data-volume-toggle]')) {
+    button.hidden = !supported
+    button.setAttribute('aria-expanded', String(supported && volumeUi.expanded.has(button.dataset.volumeToggle)))
+  }
+  for (const box of document.querySelectorAll('[data-volume-control]')) {
+    const slug = box.dataset.volumeControl
+    const guest = guests.find((item) => item.slug === slug)
+    const input = $('input', box)
+    const output = $('output', box)
+    box.hidden = !supported || !volumeUi.expanded.has(slug)
+    input.disabled = !running || !supported || (slug === 'all' ? !eligible.length : !eligible.includes(guest))
+    const draft = volumeUi.drafts.get(slug)
+    input.setAttribute('aria-busy', String(Boolean(draft)))
+    if (!input.disabled && (draft || volumeUi.dragging.has(slug))) continue
+    if (slug === 'all') {
+      const values = new Set(eligible.map(effectiveVolume))
+      const common = values.size === 1 ? [...values][0] : null
+      input.value = common ?? volumeUi.bulkValue
+      output.textContent = values.size > 1 ? 'Mixed' : `${input.value}%`
+      input.setAttribute('aria-valuetext', values.size > 1 ? 'Mixed; choose a volume for all bots' : `${input.value}%`)
+    } else {
+      input.value = guest ? effectiveVolume(guest) : 100
+      output.textContent = guest?.volumeAvailable ? `${input.value}%` : '–'
+      input.setAttribute('aria-valuetext', `${input.value}%`)
+    }
+  }
+}
+
+const flushVolumes = async () => {
+  const ui = volumeUi
+  clearTimeout(ui.timer)
+  ui.timer = null
+  if (ui.sending) return
+  ui.sending = true
+  try {
+    while (ui === volumeUi && ui.pending.size && S.state?.status === 'running') {
+      const [slug, request] = ui.pending.entries().next().value
+      ui.pending.delete(slug)
+      const guests = S.state.session?.guests ?? []
+      const targets = guests.filter((guest) => slug === 'all' ? guest.state === 'in-call' : guest.slug === slug)
+      if (!targets.length) { ui.drafts.delete(slug); continue }
+      try {
+        const { results } = await post('/api/action', { slug, action: 'volume', value: request.value })
+        if (ui !== volumeUi) return
+        const failures = []
+        for (const guest of targets) {
+          const result = results?.[guest.label]
+          if (Number.isFinite(result?.volume) && Number.isInteger(result?.revision)) {
+            const previous = ui.confirmed.get(guest.slug)
+            if (!previous || result.revision >= previous.revision) ui.confirmed.set(guest.slug, result)
+          }
+          if (!result?.ok) failures.push(`${guest.label}: ${result?.error ?? 'volume change was not confirmed'}`)
+        }
+        if (failures.length) toast(failures.join('; '), '-err')
+      } catch (error) {
+        if (ui === volumeUi) toast(`Audio: ${error.message}`, '-err')
+      } finally {
+        if (ui.drafts.get(slug) === request) ui.drafts.delete(slug)
+        if (ui === volumeUi) renderVolumes()
+      }
+    }
+  } finally {
+    ui.sending = false
+  }
+}
+
+const bindVolume = (input) => {
+  const slug = input.dataset.volume
+  const queue = (immediate = false) => {
+    if (input.disabled) return
+    const value = Number(input.value)
+    if (volumeUi.drafts.get(slug)?.value !== value) {
+      const request = { value }
+      volumeUi.drafts.set(slug, request)
+      // Last gesture wins even when a per-bot and an all-bots update overlap.
+      volumeUi.pending.delete(slug)
+      volumeUi.pending.set(slug, request)
+    }
+    if (slug === 'all') volumeUi.bulkValue = value
+    $('output', input.parentElement).textContent = `${value}%`
+    input.setAttribute('aria-valuetext', `${value}%`)
+    if (immediate) flushVolumes()
+    else if (!volumeUi.timer) volumeUi.timer = setTimeout(flushVolumes, 150)
+  }
+  input.oninput = () => queue()
+  input.onchange = () => { volumeUi.dragging.delete(slug); queue(true) }
+  input.onpointerdown = () => volumeUi.dragging.add(slug)
+  input.onblur = () => { volumeUi.dragging.delete(slug); renderVolumes() }
+}
+const bindVolumeToggle = (button) => {
+  button.onclick = () => {
+    const slug = button.dataset.volumeToggle
+    if (!volumeUi.expanded.delete(slug)) volumeUi.expanded.add(slug)
+    renderVolumes()
+  }
+}
+bindVolume($('#volume-all'))
+bindVolumeToggle($('[data-volume-toggle="all"]'))
+for (const event of ['pointerup', 'pointercancel']) {
+  window.addEventListener(event, () => { volumeUi.dragging.clear(); renderVolumes() })
+}
+
+const syncVolumeSession = (state) => {
+  const session = state.session ? state.startedAt : null
+  if (volumeUi.session !== session) {
+    clearTimeout(volumeUi.timer)
+    volumeUi = newVolumeUi(session)
+  }
+  if (state.status !== 'running') {
+    clearTimeout(volumeUi.timer)
+    volumeUi.timer = null
+    volumeUi.pending.clear()
+    volumeUi.drafts.clear()
+    volumeUi.dragging.clear()
+  }
+}
+
 const buildCard = (guest) => {
   const card = el('div', 'card')
   card.dataset.slug = guest.slug
@@ -990,8 +1145,17 @@ const buildCard = (guest) => {
         <button class="ibtn" data-act="cam" title="Toggle camera">${I.cam}</button>
         <button class="ibtn" data-act="share" data-capability="screen" title="Share a screen">${I.share}</button>
         <button class="ibtn" data-rtc-toggle data-capability="rtc" title="Stream monitor">${I.pulse}</button>
+        <button type="button" class="ibtn" data-volume-toggle="${esc(guest.slug)}"
+          aria-expanded="false" aria-controls="audio-${esc(guest.slug)}" aria-label="Volume"
+          title="Adjust volume for ${esc(guest.label)}">${I.audio}</button>
         <span class="gap"></span>
         <button class="ibtn" data-act="leave" title="Remove this bot">${I.leave}</button>
+      </div>
+      <div class="volume" id="audio-${esc(guest.slug)}" data-volume-control="${esc(guest.slug)}" hidden
+        title="Outgoing microphone level. Above 100% can distort loud audio.">
+        <input id="volume-${esc(guest.slug)}" data-volume="${esc(guest.slug)}" type="range"
+          min="0" max="200" step="1" value="100" aria-label="${esc(guest.label)} volume">
+        <output for="volume-${esc(guest.slug)}">100%</output>
       </div>
       <div class="rtcbar" hidden>
         <span class="qdot"></span>
@@ -1014,6 +1178,8 @@ const buildCard = (guest) => {
   // anything — they only change what this panel shows.
   $('[data-rtc-toggle]', card).onclick = () => toggleRtc(guest.slug, card)
   $('[data-pin]', card).onclick = () => togglePin(guest.slug)
+  bindVolume($('[data-volume]', card))
+  bindVolumeToggle($('[data-volume-toggle]', card))
   return card
 }
 
@@ -1478,6 +1644,7 @@ const refreshThumbs = () => {
 /* ---------- render ---------- */
 const render = (state) => {
   S.state = state
+  syncVolumeSession(state)
   const running = state.status === 'running'
   const joining = state.status === 'joining'
   const busy = joining || state.status === 'stopping'
@@ -1590,6 +1757,11 @@ const render = (state) => {
     if (!guests.some((guest) => guest.slug === slug)) {
       card.remove()
       S.cards.delete(slug)
+      volumeUi.pending.delete(slug)
+      volumeUi.drafts.delete(slug)
+      volumeUi.confirmed.delete(slug)
+      volumeUi.dragging.delete(slug)
+      volumeUi.expanded.delete(slug)
       // A bot that is gone takes its pin with it, or it would come back to
       // haunt the next bot handed the same slug.
       if (S.pinned.delete(slug)) unpinned = true
@@ -1601,6 +1773,7 @@ const render = (state) => {
     }
   }
   if (unpinned) savePins()
+  renderVolumes()
 }
 
 /* ---------- live updates ---------- */

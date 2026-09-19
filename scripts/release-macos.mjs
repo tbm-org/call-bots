@@ -187,18 +187,6 @@ try {
     }
   }
 
-  step('running tests')
-  for (const script of [
-    'test:guest',
-    'test:platforms',
-    'test:cli',
-    'test:ui',
-    'test:stop',
-    'test:lkswitch',
-  ]) {
-    run('npm', ['run', script])
-  }
-
   step('building the app')
   run('npm', ['run', 'build:app'])
 

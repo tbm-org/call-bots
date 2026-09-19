@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises'
 
 import { launchGuest } from './browser.mjs'
+import { installAudioControl, volumePercent } from './audio.mjs'
 import { guestColorHex } from './fixtures.mjs'
 import { failureReport, failureShot, mkLogger } from './log.mjs'
 import { platformById } from './platforms/index.mjs'
@@ -66,6 +67,9 @@ export class Guest {
     this.user = guest // {n, label, slug, index}
     this.media = media
     this.options = options
+    this.volume = 100
+    this.volumeRevision = 0
+    this.volumeQueue = Promise.resolve()
     // Preferred send codecs by role; null means the platform's own default.
     // A per-guest object on purpose: every guest of a batch shares one options
     // reference, and a runtime switch must never leak to the siblings.
@@ -133,7 +137,44 @@ export class Guest {
     this.context = launched.context
     this.page = launched.page
     this.closeBrowser = launched.close
+    if (platform.capabilities?.volume && !this.options.noAudio && this.context) {
+      try {
+        await installAudioControl(this.context, () => ({ volume: this.volume, revision: this.volumeRevision }))
+      } catch (error) {
+        await this.#closeBrowserProcess()
+        throw error
+      }
+    }
     this.state = 'ready'
+  }
+
+  get volumeAvailable() {
+    return this.platform?.capabilities?.volume === true && !this.options.noAudio &&
+      this.instrumented && Boolean(this.page) && !this.page.isClosed()
+  }
+
+  setVolume(value) {
+    const volume = volumePercent(value)
+    // Bulk and per-card requests may overlap. Commit only acknowledged changes,
+    // in order, so an older completion cannot overwrite a newer setting.
+    const operation = this.volumeQueue.then(async () => {
+      if (!this.volumeAvailable || this.state !== 'in-call') {
+        throw new Error('outgoing volume is unavailable for this bot')
+      }
+      const next = { volume, revision: this.volumeRevision + 1 }
+      const applied = await this.page.evaluate(async (setting) => {
+        if (!window.__botSetVolume__) throw new Error('audio volume control is unavailable in this page')
+        return window.__botSetVolume__(setting)
+      }, next)
+      if (applied?.volume !== volume || applied.revision !== next.revision) {
+        throw new Error('the microphone did not accept the volume change')
+      }
+      this.volume = volume
+      this.volumeRevision = next.revision
+      return { ok: true, ...next }
+    })
+    this.volumeQueue = operation.catch(() => {})
+    return operation
   }
 
   // Evidence for a failure, in whatever form this bot's page can give it: a

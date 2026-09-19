@@ -1,46 +1,81 @@
-// Rebuilds the voices that ship with the app, one per clip, from the passages
-// in src/fixtures.mjs using the best male voices this machine has.
+// Rebuild the bundled real recordings from the licensed sources and excerpts
+// in media/voices.json. Requires ffmpeg on PATH; downloads are cached in .data.
 //
-//   node scripts/make-voices.mjs
-//
-// macOS ships a compact version of each voice and downloads a much better one
-// on request. If you install those — System Settings › Accessibility › Spoken
-// Content › System Voice › Manage Voices, look for "Enhanced" or "Premium" —
-// rerun this and the bots pick them up automatically.
-import { copyFileSync, mkdirSync, readdirSync, rmSync } from 'node:fs'
+//   npm run voices
+import { execFile } from 'node:child_process'
+import { createHash } from 'node:crypto'
+import { createWriteStream, existsSync } from 'node:fs'
+import { mkdir, mkdtemp, readFile, rename, rm } from 'node:fs/promises'
 import { join } from 'node:path'
-import { tmpdir } from 'node:os'
+import { Readable } from 'node:stream'
+import { pipeline } from 'node:stream/promises'
+import { fileURLToPath } from 'node:url'
+import { promisify } from 'node:util'
 
-// Set the home before importing config: it reads the variable once, at import,
-// and everything downstream resolves against whatever it saw then.
-const scratch = join(tmpdir(), `call-bots-voices-${process.pid}`)
-process.env.CALL_BOTS_HOME = scratch
+const run = promisify(execFile)
+const mediaDir = fileURLToPath(new URL('../media/', import.meta.url))
+const cacheDir = fileURLToPath(new URL('../.data/voice-sources/', import.meta.url))
+const { voices } = JSON.parse(await readFile(join(mediaDir, 'voices.json'), 'utf8'))
+const loudness = 'I=-20:TP=-7:LRA=11'
+let staging
 
-const { bundledMediaDir } = await import('../src/config.mjs')
+try {
+  await run('ffmpeg', ['-version'])
+  await mkdir(cacheDir, { recursive: true })
+  staging = await mkdtemp(join(mediaDir, '.voices-'))
 
-const { listVoices } = await import('../src/tts.mjs')
-const { ensureGuestFixtures, THEME_COUNT } = await import('../src/fixtures.mjs')
+  for (const voice of voices) {
+    const { file, speaker, start, end, source } = voice
+    if (!/^voice-[1-5]\.wav$/u.test(file) || !Number.isFinite(start) || !Number.isFinite(end) || start < 0 || end <= start) {
+      throw new Error(`invalid excerpt for ${speaker}`)
+    }
+    console.log(`${file}: ${speaker} …`)
+    const key = createHash('sha256').update(source.downloadUrl).digest('hex')
+    const original = join(cacheDir, `${key}.source`)
+    if (!existsSync(original)) {
+      const response = await fetch(source.downloadUrl, {
+        headers: { 'User-Agent': 'CallBots/1.0 (bundled voice importer)' },
+      })
+      if (!response.ok) throw new Error(`${speaker}: download failed (HTTP ${response.status})`)
+      const partial = `${original}.${process.pid}.part`
+      try {
+        await pipeline(Readable.fromWeb(response.body), createWriteStream(partial))
+        await rename(partial, original)
+      } finally {
+        await rm(partial, { force: true })
+      }
+    }
 
-const voices = await listVoices()
-if (voices.length === 0) {
-  console.error('no system voices found — nothing to build')
-  process.exit(1)
+    const duration = end - start
+    const input = [
+      '-hide_banner', '-nostdin', '-y', '-ss', String(start), '-t', String(duration),
+      '-i', original, '-map', '0:a:0', '-vn', '-sn', '-dn',
+    ]
+    const cleanup = 'aformat=channel_layouts=mono,highpass=f=70'
+    const { stderr } = await run('ffmpeg', [
+      ...input, '-af', `${cleanup},loudnorm=${loudness}:print_format=json`, '-f', 'null', '-',
+    ])
+    const measured = JSON.parse(stderr.match(/\{\s*"input_i"[\s\S]*?\}/u)?.[0] ?? 'null')
+    if (!measured || !['input_i', 'input_tp', 'input_lra', 'input_thresh', 'target_offset']
+      .every((key) => Number.isFinite(Number(measured[key])))) {
+      throw new Error(`${speaker}: could not measure audio loudness`)
+    }
+    const normalize = `loudnorm=${loudness}:measured_I=${measured.input_i}:measured_TP=${measured.input_tp}` +
+      `:measured_LRA=${measured.input_lra}:measured_thresh=${measured.input_thresh}` +
+      `:offset=${measured.target_offset}:linear=true`
+    await run('ffmpeg', [
+      ...input, '-af', `${cleanup},${normalize},afade=t=in:d=0.015,afade=t=out:st=${duration - 0.06}:d=0.06`,
+      '-map_metadata', '-1', '-ac', '1', '-ar', '48000', '-c:a', 'pcm_s16le', join(staging, file),
+    ])
+    console.log(`  ${duration.toFixed(1)}s · ${voice.language} · 48 kHz mono`)
+  }
+
+  // Keep the previous set usable if any download or conversion fails.
+  for (const { file } of voices) await rename(join(staging, file), join(mediaDir, file))
+  console.log(`\nRebuilt ${voices.length} recordings. New bots will use them.`)
+} catch (error) {
+  console.error(error.code === 'ENOENT' ? 'ffmpeg is required: brew install ffmpeg' : error.message)
+  process.exitCode = 1
+} finally {
+  if (staging) await rm(staging, { recursive: true, force: true })
 }
-console.log('using:')
-for (let i = 0; i < THEME_COUNT; i += 1) {
-  console.log(`  voice-${i + 1}  ${voices[i % voices.length]}`)
-}
-
-mkdirSync(bundledMediaDir, { recursive: true })
-for (let i = 1; i <= THEME_COUNT; i += 1) rmSync(join(bundledMediaDir, `voice-${i}.wav`), { force: true })
-
-const bots = Array.from({ length: THEME_COUNT }, (_, i) => ({ n: i + 1, slug: `bot-${i + 1}` }))
-await ensureGuestFixtures(bots, {})
-
-for (let i = 1; i <= THEME_COUNT; i += 1) {
-  copyFileSync(join(scratch, 'fixtures', `bot-${i}.wav`), join(bundledMediaDir, `voice-${i}.wav`))
-}
-rmSync(scratch, { recursive: true, force: true })
-
-const built = readdirSync(bundledMediaDir).filter((n) => /^voice-\d+\.wav$/u.test(n)).sort()
-console.log(`\nwrote ${built.length} voice(s) to ${bundledMediaDir}`)

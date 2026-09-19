@@ -108,9 +108,8 @@ export const ensureClip = async (theme, { size = '1920x1080', fps = 12, seconds 
   return out
 }
 
-// A clip that came with its own soundtrack speaks for itself, and the shipped
-// footage carries a matching voice per clip. Only when neither exists does a
-// bot fall back to speech synthesised on this machine.
+// Imported soundtracks take priority over the bundled multilingual recordings.
+// Only when neither exists does a bot fall back to speech synthesised here.
 const realVoice = (theme) => {
   for (const dir of mediaDirs) {
     const file = join(dir, `voice-${theme + 1}.wav`)

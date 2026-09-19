@@ -21,6 +21,7 @@ export const capabilities = Object.freeze({
   screen: true,
   rtc: true,
   codecs: true,
+  volume: true,
 })
 
 export const SEL = {

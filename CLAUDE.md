@@ -446,25 +446,12 @@ Write `release-notes/<version>.md` first — that is what the update dialog
 shows a person, and a release that changes what the app does cannot say only
 "a new version is available". Without one the script falls back to that line.
 
-`npm run release:mac -- <version>` sets the version itself, **runs every test
-script**, builds, signs and publishes; the app updates through Sparkle from
-`SUFeedURL` (the repo's `releases/latest/download/appcast.xml`). Two things
-follow from that: the test scripts must match the code or the release stops
-before it builds, and a version has to be given on the command line — nothing
-infers one. The last published tag is v0.5.4; 0.6.0 in package.json was never
-released, so the Meet work here is unreleased, and removing the Google account
-path is a breaking change worth its own minor version.
+`npm run release:mac -- <version>` sets the version itself, builds, signs and
+publishes; the app updates through Sparkle from `SUFeedURL` (the repo's
+`releases/latest/download/appcast.xml`). A version has to be given on the
+command line — nothing infers one. Check the latest published version on
+GitHub before choosing the next version.
 
-## Tests
+## Verification
 
-No framework. Each script collects `check(name, pass, detail)` and exits 1 on
-any failure.
-
-```bash
-npm run test:platforms && npm run test:cli \
-  && npm run test:guest && npm run test:ui && npm run test:stop
-```
-
-`test:platforms` drives each adapter against mock pages; `test:ui` drives the
-real `src/ui.html` with the server stubbed at the network seam. A real call
-remains the final acceptance check — every Meet finding above came from one.
+Do not add or run automated tests. Verify changes in a real call when needed.

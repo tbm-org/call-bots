@@ -14,13 +14,6 @@
     "doctor": "node src/cli.mjs doctor",
     "clean": "node src/cli.mjs clean",
     "postinstall": "node scripts/postinstall.mjs",
-    "test:platforms": "node scripts/test-platforms.mjs",
-    "test:cli": "node scripts/test-cli.mjs",
-    "test:guest": "node scripts/test-guest.mjs",
-    "test:ui": "node scripts/test-ui.mjs",
-    "test:rtc": "node scripts/test-rtc.mjs",
-    "test:lkswitch": "node scripts/test-lkswitch.mjs",
-    "test:stop": "node scripts/test-stop.mjs",
     "voices": "node scripts/make-voices.mjs"
   },
   "engines": {

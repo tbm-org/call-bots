@@ -317,6 +317,9 @@ export class Roster {
           screen,
           rtc,
           codecs: guest.codecs,
+          volume: guest.volume,
+          volumeRevision: guest.volumeRevision,
+          volumeAvailable: guest.volumeAvailable,
           note: guest.note,
           lastError: guest.lastError,
         }

@@ -1,0 +1,89 @@
+{
+  "voices": [
+    {
+      "file": "voice-1.wav",
+      "speaker": "Neil deGrasse Tyson",
+      "language": "English",
+      "topic": "The teachers who sparked his curiosity and his career exploring the universe",
+      "start": 9.5,
+      "end": 83.6,
+      "source": {
+        "title": "Neil deGrasse Tyson Thanks Teachers",
+        "author": "United States Department of Education",
+        "url": "https://www.youtube.com/watch?v=Kg588wefGO0",
+        "archiveUrl": "https://commons.wikimedia.org/wiki/File:Neil_deGrasse_Tyson_Thanks_Teachers.webm",
+        "downloadUrl": "https://upload.wikimedia.org/wikipedia/commons/3/38/Neil_deGrasse_Tyson_Thanks_Teachers.webm",
+        "license": "Public domain (U.S. Department of Education recording)",
+        "licenseUrl": "https://commons.wikimedia.org/wiki/File:Neil_deGrasse_Tyson_Thanks_Teachers.webm#Licensing"
+      }
+    },
+    {
+      "file": "voice-2.wav",
+      "speaker": "Shakira",
+      "language": "English",
+      "topic": "The school choir, her goat-like vibrato, and parents who believed in her",
+      "start": 404.54,
+      "end": 470.74,
+      "source": {
+        "title": "Shakira: They Said I Sang Like a Goat",
+        "author": "World Economic Forum",
+        "url": "https://www.youtube.com/watch?v=l0Uo3rDQHvo",
+        "archiveUrl": "https://commons.wikimedia.org/wiki/File:Shakira-_They_Said_I_Sang_Like_a_Goat.webm",
+        "downloadUrl": "https://upload.wikimedia.org/wikipedia/commons/transcoded/e/ef/Shakira-_They_Said_I_Sang_Like_a_Goat.webm/Shakira-_They_Said_I_Sang_Like_a_Goat.webm.240p.vp9.webm",
+        "license": "CC BY 3.0",
+        "licenseUrl": "https://creativecommons.org/licenses/by/3.0/"
+      }
+    },
+    {
+      "file": "voice-3.wav",
+      "speaker": "Efim Shifrin",
+      "language": "Russian",
+      "topic": "A comedian's comparison of high and low art with medical specialties",
+      "start": 0,
+      "end": 44.996,
+      "source": {
+        "title": "Efim Shifrin voice",
+        "author": "Echo of Moscow",
+        "url": "http://echo.msk.ru/guests/voices/1064.html",
+        "archiveUrl": "https://commons.wikimedia.org/wiki/File:Efim_Shifrin_voice.oga",
+        "downloadUrl": "https://upload.wikimedia.org/wikipedia/commons/c/c7/Efim_Shifrin_voice.oga",
+        "license": "CC BY 3.0",
+        "licenseUrl": "https://creativecommons.org/licenses/by/3.0/"
+      }
+    },
+    {
+      "file": "voice-4.wav",
+      "speaker": "Valdis Pelsh",
+      "language": "Russian",
+      "topic": "Viewers remembering TV pranks that their presenter has already forgotten",
+      "start": 0,
+      "end": 25.379,
+      "source": {
+        "title": "Valdis Pel'sh voice",
+        "author": "Echo of Moscow",
+        "url": "http://echo.msk.ru/guests/voices/1055.html",
+        "archiveUrl": "https://commons.wikimedia.org/wiki/File:Valdis_Pel%27sh_voice.oga",
+        "downloadUrl": "https://upload.wikimedia.org/wikipedia/commons/1/1a/Valdis_Pel%27sh_voice.oga",
+        "license": "CC BY 3.0",
+        "licenseUrl": "https://creativecommons.org/licenses/by/3.0/"
+      }
+    },
+    {
+      "file": "voice-5.wav",
+      "speaker": "Roman Kartsev",
+      "language": "Russian",
+      "topic": "An Odessite's comic distinction between panicking and rushing around",
+      "start": 0,
+      "end": 22.348,
+      "source": {
+        "title": "Roman Kartsev voice",
+        "author": "Echo of Moscow radio station archive",
+        "url": "http://echo.msk.ru/guests/voices/1050.html",
+        "archiveUrl": "https://commons.wikimedia.org/wiki/File:Roman_Kartsev_voice.oga",
+        "downloadUrl": "https://upload.wikimedia.org/wikipedia/commons/0/07/Roman_Kartsev_voice.oga",
+        "license": "CC BY 3.0",
+        "licenseUrl": "https://creativecommons.org/licenses/by/3.0/"
+      }
+    }
+  ]
+}
