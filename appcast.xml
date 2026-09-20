@@ -1,0 +1,23 @@
+<?xml version="1.0" standalone="yes"?><!-- sparkle-sign-warning:
+IMPORTANT: This file was signed by Sparkle. Any modifications to this file requires re-signing this file with generate_appcast or sign_update! The signed signature will be embedded at the end of this file.
+--><rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
+    <channel>
+        <title>Call Bots</title>
+        <item>
+            <title>0.8.2</title>
+            <pubDate>Sun, 20 Sep 2026 10:16:15 +0500</pubDate>
+            <sparkle:version>0.8.2</sparkle:version>
+            <sparkle:shortVersionString>0.8.2</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>12.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <description sparkle:format="markdown"><![CDATA[# Call Bots 0.8.2
+
+Fixed the remaining white border on volume sliders in the Mac app. Individual-bot and all-bots sliders now use a borderless track with a volume fill that follows adjustments.
+]]></description>
+            <enclosure url="https://api.github.com/repos/tbm-org/call-bots/releases/assets/576174575" length="210049112" type="application/octet-stream" sparkle:edSignature="vcC66Rx5/3vbB+tA/ylAOenPsleCS1O+7FxjFHDpHBxaANajot7NAuff9YGfa974wJl5h55owOmOgbXKS0ruCA=="></enclosure>
+        </item>
+    </channel>
+</rss><!-- sparkle-signatures:
+edSignature: 8S8YE3nTtdG5dXeUwNxhLJ61cLBCBlWSQkt4wSRfh8Wq2bw37nlNDNaRyvRF/2PiKekXY4AEzbMicsB+XhucBw==
+length: 1391
+-->
