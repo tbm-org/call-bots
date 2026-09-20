@@ -175,7 +175,30 @@
   [data-volume-toggle]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .volume { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; }
   .cbody .volume { margin-top: 12px; }
-  .volume input { min-width: 60px; width: 100%; flex: 1; accent-color: var(--accent); cursor: pointer; outline: none; }
+  /* WebKit draws a border inside its native range track, even with outline: none. */
+  .volume input {
+    -webkit-appearance: none; appearance: none;
+    min-width: 60px; width: 100%; height: 20px; flex: 1;
+    padding: 0; border: 0; outline: none; background: transparent; box-shadow: none; cursor: pointer;
+  }
+  .volume input::-webkit-slider-runnable-track {
+    height: 4px; border: 0; border-radius: 999px; box-shadow: none;
+    background: linear-gradient(to right, var(--accent) var(--volume-fill, 50%), var(--line-2) var(--volume-fill, 50%));
+  }
+  .volume input::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none;
+    width: 14px; height: 14px; margin-top: -5px;
+    border: 0; border-radius: 50%; background: var(--text); box-shadow: none;
+  }
+  .volume input:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 3px var(--accent-soft); }
+  .volume input::-moz-range-track {
+    height: 4px; border: 0; border-radius: 999px; background: var(--line-2); box-shadow: none;
+  }
+  .volume input::-moz-range-progress { height: 4px; border: 0; border-radius: 999px; background: var(--accent); }
+  .volume input::-moz-range-thumb {
+    width: 14px; height: 14px; border: 0; border-radius: 50%; background: var(--text); box-shadow: none;
+  }
+  .volume input:focus-visible::-moz-range-thumb { box-shadow: 0 0 0 3px var(--accent-soft); }
   .volume input:disabled { opacity: .4; cursor: default; }
   .volume output { min-width: 40px; text-align: right; font-variant-numeric: tabular-nums; }
   .allbar .volume { flex: 0 1 242px; }
@@ -998,6 +1021,11 @@ const effectiveVolume = (guest) => {
   return guest.volume ?? 100
 }
 
+const paintVolume = (input) => {
+  const fraction = (Number(input.value) - Number(input.min)) / (Number(input.max) - Number(input.min))
+  input.style.setProperty('--volume-fill', `${fraction * 100}%`)
+}
+
 const renderVolumes = () => {
   const guests = S.state?.session?.guests ?? []
   const running = S.state?.status === 'running'
@@ -1028,6 +1056,7 @@ const renderVolumes = () => {
       output.textContent = guest?.volumeAvailable ? `${input.value}%` : '–'
       input.setAttribute('aria-valuetext', `${input.value}%`)
     }
+    paintVolume(input)
   }
 }
 
@@ -1084,6 +1113,7 @@ const bindVolume = (input) => {
     if (slug === 'all') volumeUi.bulkValue = value
     $('output', input.parentElement).textContent = `${value}%`
     input.setAttribute('aria-valuetext', `${value}%`)
+    paintVolume(input)
     if (immediate) flushVolumes()
     else if (!volumeUi.timer) volumeUi.timer = setTimeout(flushVolumes, 150)
   }
