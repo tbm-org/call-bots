@@ -13,6 +13,7 @@ import { basename, join } from 'node:path'
 import { projectRoot } from '../src/config.mjs'
 import { prepareSparkle, sha256File } from './sparkle.mjs'
 import { UPDATE } from './update-config.mjs'
+import { publishUpdateFeed } from './publish-update-feed.mjs'
 
 process.on('uncaughtException', (error) => {
   console.error(`\nrelease failed: ${error.message}`)
@@ -51,23 +52,29 @@ const compareVersions = (left, right) => {
   return 0
 }
 const wait = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds))
-const downloadFeed = async (destination, matches) => {
-  for (let attempt = 1; attempt <= 20; attempt += 1) {
+const downloadFeed = async (destination, matches, source = UPDATE.feedUrl) => {
+  const deadline = Date.now() + 60_000
+  while (Date.now() < deadline) {
     try {
+      const url = new URL(source)
+      url.searchParams.set('check', String(Date.now()))
+      const timeout = Math.max(1, Math.min(15, Math.ceil((deadline - Date.now()) / 1000)))
       execFileSync(
         'curl',
         [
           '--fail', '--location', '--silent', '--show-error',
-          '--output', destination, UPDATE.feedUrl,
+          '--connect-timeout', '10', '--max-time', String(timeout),
+          '--header', 'Accept: application/octet-stream',
+          '--output', destination, url.href,
         ],
         { cwd: projectRoot, stdio: 'pipe' },
       )
       const xml = readFileSync(destination, 'utf8')
       if (matches(xml)) return xml
     } catch {
-      // GitHub's latest-release redirect can take a few seconds to change.
+      // A newly published feed can take a few seconds to reach the CDN.
     }
-    if (attempt < 20) await wait(3_000)
+    if (Date.now() + 3_000 < deadline) await wait(3_000)
   }
   fail('the public update feed did not become current within one minute')
 }
@@ -129,6 +136,10 @@ if (publicKey !== UPDATE.publicEdKey) {
 
 if (resuming && existingRelease && !existingRelease.isDraft) {
   step('verifying the already-published release')
+  const release = JSON.parse(output('gh', ['api', `repos/${UPDATE.githubRepo}/releases/tags/${tag}`]))
+  const remoteArchive = release.assets.find((asset) => asset.name === archiveName)
+  const remoteAppcast = release.assets.find((asset) => asset.name === 'appcast.xml')
+  if (!remoteArchive || !remoteAppcast) fail('the published release is missing its archive or appcast')
   const verifyDir = join(projectRoot, '.data', `release-verification-${targetVersion}`)
   rmSync(verifyDir, { recursive: true, force: true })
   mkdirSync(verifyDir, { recursive: true })
@@ -140,18 +151,16 @@ if (resuming && existingRelease && !existingRelease.isDraft) {
     (value) =>
       value.includes(expectedUrl) &&
       value.includes(`<sparkle:version>${targetVersion}</sparkle:version>`),
+    remoteAppcast.url,
   )
   run(sparkle.signUpdate, ['--account', UPDATE.keychainAccount, '--verify', published])
   const signature = xml.match(/sparkle:edSignature="([^"]+)"/u)?.[1]
-  const remoteArchive = existingRelease.assets.find((asset) => asset.name === archiveName)
-  const remoteAppcast = existingRelease.assets.find((asset) => asset.name === 'appcast.xml')
-  if (!signature || !remoteArchive || !remoteAppcast) {
-    fail('the published release is missing its archive or appcast')
-  }
+  if (!signature) fail('the published appcast is missing its archive signature')
   const downloadedArchive = join(verifyDir, archiveName)
   run('curl', [
     '--fail', '--location', '--retry', '5', '--retry-all-errors',
-    '--output', downloadedArchive, expectedUrl,
+    '--header', 'Accept: application/octet-stream',
+    '--output', downloadedArchive, remoteArchive.url,
   ])
   run(sparkle.signUpdate, [
     '--account', UPDATE.keychainAccount, '--verify', downloadedArchive, signature,
@@ -163,6 +172,8 @@ if (resuming && existingRelease && !existingRelease.isDraft) {
   ) {
     fail('the published archive differs from its GitHub asset metadata')
   }
+  const direct = publishUpdateFeed({ version: targetVersion, appcast: published, signUpdate: sparkle.signUpdate })
+  await downloadFeed(join(verifyDir, 'published-direct-appcast.xml'), (value) => value === direct.xml)
   console.log(`\nreleased: ${existingRelease.url}`)
   console.log(`feed:     ${UPDATE.feedUrl}`)
   process.exit(0)
@@ -285,19 +296,21 @@ try {
 
   step('verifying the public feed')
   const published = join(releaseDir, 'published-appcast.xml')
-  await downloadFeed(published, (value) => value === xml)
-  const assets = JSON.parse(output('gh', [
-    'release', 'view', tag, '--repo', UPDATE.githubRepo, '--json', 'assets',
-  ])).assets
+  const { assets } = JSON.parse(output('gh', ['api', `repos/${UPDATE.githubRepo}/releases/tags/${tag}`]))
   const remoteArchive = assets.find((asset) => asset.name === archiveName)
+  const remoteAppcast = assets.find((asset) => asset.name === 'appcast.xml')
   const expectedDigest = `sha256:${await sha256File(releaseArchive)}`
   if (
-    !remoteArchive ||
+    !remoteArchive || !remoteAppcast ||
     remoteArchive.size !== statSync(releaseArchive).size ||
     remoteArchive.digest !== expectedDigest
   ) {
     fail('published archive is missing or differs from the signed local archive')
   }
+  await downloadFeed(published, (value) => value === xml, remoteAppcast.url)
+  step('publishing the direct update feed')
+  const direct = publishUpdateFeed({ version: targetVersion, appcast, signUpdate: sparkle.signUpdate })
+  await downloadFeed(join(releaseDir, 'published-direct-appcast.xml'), (value) => value === direct.xml)
 
   console.log(`\nreleased: https://github.com/${UPDATE.githubRepo}/releases/tag/${tag}`)
   console.log(`feed:     ${UPDATE.feedUrl}`)

@@ -447,9 +447,10 @@ shows a person, and a release that changes what the app does cannot say only
 "a new version is available". Without one the script falls back to that line.
 
 `npm run release:mac -- <version>` sets the version itself, builds, signs and
-publishes; the app updates through Sparkle from `SUFeedURL` (the repo's
-`releases/latest/download/appcast.xml`). A version has to be given on the
-command line — nothing infers one. Check the latest published version on
+publishes; Sparkle reads the signed feed on the `codex/updates` branch through
+GitHub's raw CDN and downloads archives through its public asset API. The
+release attachment keeps the original feed for older apps. A version has to be
+given on the command line — nothing infers one. Check the latest published version on
 GitHub before choosing the next version.
 
 ## Verification

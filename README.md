@@ -221,6 +221,7 @@ Meet; если Meet всё же покажет что-то другое, бот 
 npm run release:mac -- 0.3.0
 ```
 
-Команда собирает и подписывает ZIP и `appcast.xml`, затем
-публикует оба файла в GitHub Release. Установленные приложения получают feed
-через постоянный адрес `releases/latest/download/appcast.xml`.
+Команда собирает и подписывает ZIP и `appcast.xml`, публикует оба файла в GitHub
+Release и подписанный feed в ветке `codex/updates`. Начиная с 0.8.3 приложение
+получает feed напрямую через CDN GitHub, а архив — через публичный API файлов
+релиза. Старые версии продолжают использовать feed из GitHub Release.

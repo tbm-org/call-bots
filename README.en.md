@@ -213,6 +213,7 @@ From a clean `main` branch, pass the new version to one command:
 npm run release:mac -- 0.3.0
 ```
 
-It builds and signs the ZIP and `appcast.xml`, then publishes
-both as GitHub Release assets. Installed apps read the feed from the stable
-`releases/latest/download/appcast.xml` URL.
+It builds and signs the ZIP and `appcast.xml`, then publishes both as GitHub
+Release assets. It also publishes a signed feed on the `codex/updates` branch.
+Apps from 0.8.3 read this feed directly from GitHub's raw CDN and download
+archives through the public asset API. Older apps keep using the release feed.

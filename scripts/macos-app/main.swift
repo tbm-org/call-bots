@@ -8,19 +8,22 @@ import WebKit
 let port = ProcessInfo.processInfo.environment["CALL_BOTS_PORT"] ?? "4610"
 let baseURL = URL(string: "http://127.0.0.1:\(port)")!
 
-final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDelegate, SPUUpdaterDelegate {
   var window: NSWindow!
   var webView: WKWebView!
   var server: Process?
   var quitting = false
-  private let updaterController = SPUStandardUpdaterController(
-    startingUpdater: true, updaterDelegate: nil, userDriverDelegate: nil)
+  private lazy var updaterController = SPUStandardUpdaterController(
+    startingUpdater: false, updaterDelegate: self, userDriverDelegate: nil)
 
   // MARK: lifecycle
 
   func applicationDidFinishLaunching(_ note: Notification) {
     buildMenu()
     buildWindow()
+    // GitHub's public asset API redirects to the signed archive with this header.
+    updaterController.updater.httpHeaders = ["Accept": "application/octet-stream"]
+    updaterController.startUpdater()
     // Check once on every launch. The scheduled daily check still covers the
     // uncommon case where someone leaves Call Bots open for several days.
     updaterController.updater.checkForUpdatesInBackground()
@@ -46,6 +49,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
     // SIGTERM triggers the server's own graceful teardown (leave calls, close
     // sim browsers); node finishes that even after this process is gone.
     if let server, server.isRunning { server.terminate() }
+  }
+
+  func feedURLString(for updater: SPUUpdater) -> String? {
+    guard let feed = Bundle.main.object(forInfoDictionaryKey: "SUFeedURL") as? String,
+          var url = URLComponents(string: feed) else { return nil }
+    // A manual check should see a just-published release, not the CDN's old feed.
+    url.queryItems = [URLQueryItem(name: "check", value: String(Int(Date().timeIntervalSince1970)))]
+    return url.string
   }
 
   // MARK: window
