@@ -4,20 +4,22 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <channel>
         <title>Call Bots</title>
         <item>
-            <title>0.8.2</title>
-            <pubDate>Sun, 20 Sep 2026 10:16:15 +0500</pubDate>
-            <sparkle:version>0.8.2</sparkle:version>
-            <sparkle:shortVersionString>0.8.2</sparkle:shortVersionString>
+            <title>0.8.3</title>
+            <pubDate>Sun, 20 Sep 2026 10:38:39 +0500</pubDate>
+            <sparkle:version>0.8.3</sparkle:version>
+            <sparkle:shortVersionString>0.8.3</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>12.0</sparkle:minimumSystemVersion>
             <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
-            <description sparkle:format="markdown"><![CDATA[# Call Bots 0.8.2
+            <description sparkle:format="markdown"><![CDATA[# Call Bots 0.8.3
 
-Fixed the remaining white border on volume sliders in the Mac app. Individual-bot and all-bots sliders now use a borderless track with a volume fill that follows adjustments.
+Fixed update checks timing out when github.com is unreachable. Update information now loads directly from GitHub's CDN, and app downloads use its public asset API. Updates remain signed and verified.
+
+Manual checks fetch fresh update information so a newly published release can be found immediately.
 ]]></description>
-            <enclosure url="https://api.github.com/repos/tbm-org/call-bots/releases/assets/576174575" length="210049112" type="application/octet-stream" sparkle:edSignature="vcC66Rx5/3vbB+tA/ylAOenPsleCS1O+7FxjFHDpHBxaANajot7NAuff9YGfa974wJl5h55owOmOgbXKS0ruCA=="></enclosure>
+            <enclosure url="https://api.github.com/repos/tbm-org/call-bots/releases/assets/576206505" length="210051993" type="application/octet-stream" sparkle:edSignature="kUl/1ttpuBwzEAWH+HYnA9CNxDLJkbtyGqxuVfiNXZTXyZP+ounMC2XWybIQ21qX7dXKF9pq8Kspf8vahq14Cw=="></enclosure>
         </item>
     </channel>
 </rss><!-- sparkle-signatures:
-edSignature: 8S8YE3nTtdG5dXeUwNxhLJ61cLBCBlWSQkt4wSRfh8Wq2bw37nlNDNaRyvRF/2PiKekXY4AEzbMicsB+XhucBw==
-length: 1391
+edSignature: e0yuFTHOU6bec+9d1+dSdj8KxF/BLPJxDZF9P57gtdY8g92lyRHdqkY1HA4xgrcYQ1A/+WBWx79LJBezIOtyAw==
+length: 1517
 -->
