@@ -1,0 +1,25 @@
+<?xml version="1.0" standalone="yes"?><!-- sparkle-sign-warning:
+IMPORTANT: This file was signed by Sparkle. Any modifications to this file requires re-signing this file with generate_appcast or sign_update! The signed signature will be embedded at the end of this file.
+--><rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
+    <channel>
+        <title>Call Bots</title>
+        <item>
+            <title>0.8.4</title>
+            <pubDate>Sun, 20 Sep 2026 10:54:29 +0500</pubDate>
+            <sparkle:version>0.8.4</sparkle:version>
+            <sparkle:shortVersionString>0.8.4</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>12.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <description sparkle:format="markdown"><![CDATA[# Call Bots 0.8.4
+
+Update information now lives on the main branch alongside the app's source. Publishing releases no longer needs a separate update branch.
+
+Existing 0.8.3 installations can upgrade normally and will use the new feed for future updates.
+]]></description>
+            <enclosure url="https://api.github.com/repos/tbm-org/call-bots/releases/assets/576226225" length="210051987" type="application/octet-stream" sparkle:edSignature="2uph8Gw0/OsO8g+rH7F/ag+/WAchedZJCjiquSw/RYrpS8luOR8ZEuBsV1HeDBzx9n1xtu/xm51wgextrtRZDA=="></enclosure>
+        </item>
+    </channel>
+</rss><!-- sparkle-signatures:
+edSignature: RNIX2l6tdaYYcVdPOMHjvzqZeSVw+qUy/i4sgIFSDQlhp6+8jq/fIfpyf0OHxKNOtOb+yUXAGciZwBzJNVNWAQ==
+length: 1451
+-->
