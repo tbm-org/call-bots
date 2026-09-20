@@ -110,11 +110,17 @@ if (!resuming) {
   if (head !== remoteHead) fail('main must exactly match origin/main before releasing')
   if (tagCommit || existingRelease) fail(`${tag} already exists`)
 } else {
-  const subject = output('git', ['log', '-1', '--format=%s'])
+  const releaseCommit = tagCommit ?? head
+  const subject = output('git', ['log', '-1', '--format=%s', releaseCommit])
   if (subject !== `Release ${tag}`) {
-    fail(`${targetVersion} is current, but HEAD is not its release commit`)
+    fail(`${targetVersion} is current, but its release commit was not found`)
   }
-  if (tagCommit && tagCommit !== head) fail(`${tag} does not point to HEAD`)
+  // Publishing the generated feed adds a commit after the version tag.
+  const releaseIsAncestor = tryOutput('git', ['merge-base', '--is-ancestor', releaseCommit, head]) !== null
+  const changes = output('git', ['diff', '--name-only', releaseCommit, head]).split('\n').filter(Boolean)
+  if (!releaseIsAncestor || changes.some((path) => path !== UPDATE.feedPath)) {
+    fail(`only the generated update feed may change after ${tag} when resuming`)
+  }
   if (head !== remoteHead) {
     const ahead = tryOutput('git', ['rev-list', '--count', 'origin/main..HEAD'])
     const remoteIsAncestor =

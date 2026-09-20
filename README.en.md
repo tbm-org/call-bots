@@ -214,6 +214,7 @@ npm run release:mac -- 0.3.0
 ```
 
 It builds and signs the ZIP and `appcast.xml`, then publishes both as GitHub
-Release assets. It also publishes a signed feed on the `codex/updates` branch.
-Apps from 0.8.3 read this feed directly from GitHub's raw CDN and download
-archives through the public asset API. Older apps keep using the release feed.
+Release assets, then commits the signed feed to `updates/appcast.xml` on `main`.
+Apps from 0.8.4 read this feed directly from GitHub's raw CDN and download
+archives through the public asset API. A fixed `codex/updates` tag lets 0.8.3
+upgrade to 0.8.4; earlier apps keep using the release feed.

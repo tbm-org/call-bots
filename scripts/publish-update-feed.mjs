@@ -1,28 +1,21 @@
 import { execFileSync } from 'node:child_process'
-import { readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 
 import { projectRoot } from '../src/config.mjs'
 import { UPDATE } from './update-config.mjs'
 
-const api = (path, body, allowMissing = false) => {
-  const args = ['api', `repos/${UPDATE.githubRepo}/${path}`]
-  if (body) args.push('--method', body.method ?? 'POST', '--input', '-')
-  try {
-    return JSON.parse(execFileSync('gh', args, {
-      cwd: projectRoot, encoding: 'utf8',
-      input: body ? JSON.stringify(body.data) : undefined,
-      stdio: ['pipe', 'pipe', 'pipe'],
-    }))
-  } catch (error) {
-    if (allowMissing && /\(HTTP 404\)/u.test(String(error.stderr))) return null
-    throw error
-  }
-}
+const api = (path) => JSON.parse(execFileSync('gh', ['api', `repos/${UPDATE.githubRepo}/${path}`], {
+  cwd: projectRoot, encoding: 'utf8',
+}))
+const git = (...args) => execFileSync('git', args, { cwd: projectRoot, encoding: 'utf8' }).trim()
 
 // Keep the release attachment for older apps. New apps read this signed copy
 // directly from GitHub's CDN and download archives through its public asset API.
 export const publishUpdateFeed = ({ version, appcast, signUpdate }) => {
+  if (git('branch', '--show-current') !== 'main' || git('status', '--porcelain')) {
+    throw new Error('Publish the update feed from a clean main branch')
+  }
   const release = api('releases/latest')
   if (release.tag_name !== `v${version}` || release.draft || release.prerelease) {
     throw new Error(`v${version} must be the latest published release before updating the feed`)
@@ -41,21 +34,13 @@ export const publishUpdateFeed = ({ version, appcast, signUpdate }) => {
   execFileSync(signUpdate, ['--account', UPDATE.keychainAccount, '--verify', directAppcast])
   const xml = readFileSync(directAppcast, 'utf8')
 
-  const current = api(`git/ref/heads/${UPDATE.feedBranch}`, undefined, true)
-  const tree = api('git/trees', { data: {
-    tree: [{ path: 'appcast.xml', mode: '100644', type: 'blob', content: xml }],
-  } })
-  if (current && api(`git/commits/${current.object.sha}`).tree.sha === tree.sha) return { xml, release }
-  const commit = api('git/commits', { data: {
-    message: `Publish update feed for v${version}`,
-    tree: tree.sha, parents: current ? [current.object.sha] : [],
-  } })
-  if (current) {
-    api(`git/refs/heads/${UPDATE.feedBranch}`, {
-      method: 'PATCH', data: { sha: commit.sha, force: false },
-    })
-  } else {
-    api('git/refs', { data: { ref: `refs/heads/${UPDATE.feedBranch}`, sha: commit.sha } })
+  const feed = join(projectRoot, UPDATE.feedPath)
+  if (!existsSync(feed) || readFileSync(feed, 'utf8') !== xml) {
+    mkdirSync(dirname(feed), { recursive: true })
+    writeFileSync(feed, xml)
+    git('add', '--', UPDATE.feedPath)
+    git('commit', '-m', `Publish update feed for v${version}`)
   }
+  git('push', 'origin', 'main')
   return { xml, release }
 }
