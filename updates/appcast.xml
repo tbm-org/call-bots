@@ -10,13 +10,10 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
             <sparkle:shortVersionString>0.8.5</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>12.0</sparkle:minimumSystemVersion>
             <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
-            <description sparkle:format="markdown"><![CDATA[Изменения с 0.7.3:
-
-- Громкость ботов Aloqa и Meet: 0–200%.
+            <description sparkle:format="markdown"><![CDATA[- Громкость ботов Aloqa и Meet: 0–200%.
 - Новые голоса на русском и английском.
 - Боты Meet на Linux.
-- Исправлены обновления и ползунки на Mac.
-- Загрузка с 0.7.3: 16,6 МБ вместо 210 МБ.
+- Уменьшен размер обновлений.
 ]]></description>
             <enclosure url="https://api.github.com/repos/tbm-org/call-bots/releases/assets/581057933" length="210074563" type="application/octet-stream" sparkle:edSignature="to5e+CTKnxlMv7GenSQc2iwfC3T1BS0KREYc2KjgOSnhn2sCzULJSPxqn6daURotvMHT6esKVS8Ubi8aMhXlCg=="/>
             <sparkle:deltas>
@@ -41,6 +38,6 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
         </item>
     </channel>
 </rss><!-- sparkle-signatures:
-edSignature: 5BA4rBMym5XbGSqmJbiF9rl2TSNtiOm/aQG46XZiP2U/iJSWrU+zKIE4UTbb+TurJ5ZJeMEWbxdjKnRvZUjGBw==
-length: 8335
+edSignature: lFeNtX9JuRWQ9XpIKUimmCpMvE8xW4/PdPTSOxfcIbZ5/8rJmb1EXKcuK2yh1/70hL74KKGprFS2/ymYPFNOCQ==
+length: 8223
 -->
