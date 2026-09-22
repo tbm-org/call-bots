@@ -25,6 +25,12 @@ export const compareVersions = (left, right) => {
   return 0
 }
 export const releaseApi = (path) => JSON.parse(run('gh', ['api', `repos/${UPDATE.githubRepo}/${path}`]))
+// GitHub's REST lookup by tag excludes drafts. The CLI also searches drafts
+// and returns their stable release API URL, even while downloads are untagged.
+export const releaseForTag = (tag) => {
+  const release = JSON.parse(run('gh', ['release', 'view', tag, '--repo', UPDATE.githubRepo, '--json', 'apiUrl']))
+  return JSON.parse(run('gh', ['api', release.apiUrl]))
+}
 const archiveName = (version) => `Call-Bots-${version}-macOS-arm64.zip`
 const safeName = (name) => {
   if (!name || name !== basename(name) || /[\\\0]/u.test(name) || ['.', '..'].includes(name)) {
@@ -120,7 +126,10 @@ const cachedAsset = async (asset, candidates = []) => {
 }
 
 const assetFor = (entry, release) => {
-  const asset = release.assets.find((value) => entry.url === value.browser_download_url || entry.url === value.url)
+  const asset = release.assets.find((value) =>
+    entry.url === value.browser_download_url || entry.url === value.url ||
+    (release.draft && entry.url === `https://github.com/${UPDATE.githubRepo}/releases/download/${release.tag_name}/${encodeURIComponent(value.name)}`),
+  )
   if (!asset || asset.size !== entry.size) throw new Error(`Missing or mismatched published download: ${entry.url}`)
   safeName(asset.name)
   if (entry.from ? !asset.name.endsWith('.delta') : asset.name !== archiveName(release.tag_name.slice(1))) {

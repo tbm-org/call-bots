@@ -12,7 +12,7 @@ import { projectRoot } from '../src/config.mjs'
 import { prepareSparkle } from './sparkle.mjs'
 import { UPDATE } from './update-config.mjs'
 import { publishUpdateFeed } from './publish-update-feed.mjs'
-import { compareVersions, prepareUpdateArtifacts, releaseApi, verifyPublishedUpdate } from './update-artifacts.mjs'
+import { compareVersions, prepareUpdateArtifacts, releaseForTag, verifyPublishedUpdate } from './update-artifacts.mjs'
 
 process.on('uncaughtException', (error) => {
   console.error(`\nrelease failed: ${error.message}`)
@@ -105,11 +105,16 @@ if (!resuming) {
   if (subject !== `Release ${tag}`) {
     fail(`${targetVersion} is current, but its release commit was not found`)
   }
-  // Publishing the generated feed adds a commit after the version tag.
+  // Feed publication and fixes to release tooling can follow the version tag.
+  // Application sources must still match the release being resumed.
   const releaseIsAncestor = tryOutput('git', ['merge-base', '--is-ancestor', releaseCommit, head]) !== null
   const changes = output('git', ['diff', '--name-only', releaseCommit, head]).split('\n').filter(Boolean)
-  if (!releaseIsAncestor || changes.some((path) => path !== UPDATE.feedPath)) {
-    fail(`only the generated update feed may change after ${tag} when resuming`)
+  const releaseFiles = new Set([
+    UPDATE.feedPath, 'scripts/release-macos.mjs', 'scripts/update-artifacts.mjs',
+    'scripts/publish-update-feed.mjs', 'scripts/macos-app/appcast.swift',
+  ])
+  if (!releaseIsAncestor || changes.some((path) => !releaseFiles.has(path))) {
+    fail(`only release tooling and the generated update feed may change after ${tag} when resuming`)
   }
   if (head !== remoteHead) {
     const ahead = tryOutput('git', ['rev-list', '--count', 'origin/main..HEAD'])
@@ -132,7 +137,7 @@ if (publicKey !== UPDATE.publicEdKey) {
 
 if (resuming && existingRelease && !existingRelease.isDraft) {
   step('verifying every already-published update asset')
-  const release = releaseApi(`releases/tags/${tag}`)
+  const release = releaseForTag(tag)
   const verified = await verifyPublishedUpdate({ release, signUpdate: sparkle.signUpdate })
   const verifyDir = join(projectRoot, '.data', `release-verification-${targetVersion}`)
   mkdirSync(verifyDir, { recursive: true })
@@ -235,13 +240,13 @@ try {
 
   step('verifying every uploaded asset before publication')
   await verifyPublishedUpdate({
-    release: releaseApi(`releases/tags/${tag}`), appcast, signUpdate: sparkle.signUpdate,
+    release: releaseForTag(tag), appcast, signUpdate: sparkle.signUpdate,
   })
   run('gh', ['release', 'edit', tag, '--repo', UPDATE.githubRepo, '--draft=false', '--latest'])
 
   step('verifying the public release feed')
   const published = join(releaseDir, 'published-appcast.xml')
-  const release = releaseApi(`releases/tags/${tag}`)
+  const release = releaseForTag(tag)
   const remoteAppcast = release.assets.find((asset) => asset.name === 'appcast.xml')
   await downloadFeed(published, (value) => value === xml, remoteAppcast.url)
   step('publishing the direct update feed')
