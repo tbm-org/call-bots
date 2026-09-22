@@ -443,7 +443,7 @@
         <span id="meetBarText"></span>
         <span class="spacer"></span>
         <button type="button" class="btn" id="windowsBtn" hidden
-          title="Bot windows are hidden by default; show them to watch a bot's own view">Show windows</button>
+          title="Show or hide the Mac bots’ browser windows">Hide windows</button>
       </div>
     </div>
 
@@ -535,7 +535,7 @@ const post = async (url, body) => {
 const FULL_CAPABILITIES = Object.freeze({ mic: true, camera: true, screen: true, rtc: true, codecs: true, volume: true })
 // What the server will say once a Meet session exists — mirrored here so the
 // controls Meet cannot honour never flash into view while a link is typed.
-const MEET_CAPABILITIES = Object.freeze({ mic: true, camera: true, screen: true, rtc: true, codecs: false, volume: false })
+const MEET_CAPABILITIES = Object.freeze({ mic: true, camera: true, screen: true, rtc: true, codecs: false, volume: true })
 const platformFromLink = () => {
   try {
     const url = new URL($('#link').value.trim())
@@ -552,9 +552,12 @@ const platformId = () => {
 }
 const capabilities = () =>
   S.state?.session?.capabilities ?? (platformId() === 'meet' ? MEET_CAPABILITIES : FULL_CAPABILITIES)
-// What Meet needs on this machine, as the server sees it: Google Chrome, and
-// macOS for the guests' driver. Assumed present until the first state lands.
-const meetInfo = () => S.state?.meet ?? { chromeReady: true, macOS: true }
+// Readiness is supplied by the running host, including Linux virtual displays.
+const meetInfo = () => {
+  const info = S.state?.meet
+  if (!info) return { ready: true, macOS: true, windowsSupported: true }
+  return { ...info, ready: info.ready ?? (info.macOS && info.chromeReady), windowsSupported: info.windowsSupported ?? info.macOS }
+}
 
 const S = {
   state: null, cards: new Map(), groups: new Map(), rtc: new Map(),
@@ -569,7 +572,7 @@ const S = {
 // link. Guests need nothing set up, so the line stays quiet unless this
 // machine is missing what they run on.
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)]
-const meetUnavailable = () => !meetInfo().macOS || !meetInfo().chromeReady
+const meetUnavailable = () => !meetInfo().ready
 
 // One description of what the Meet empty state says. There used to be two,
 // written in two places and both run on every frame, and they drifted apart the
@@ -581,19 +584,14 @@ const meetEmptyState = (joining) => {
     return {
       title: 'Preparing Google Meet bots',
       text: 'Each bot opens a Chrome window and asks to be let in — admit them in Meet. ' +
-        'The first send on this Mac also builds a private copy of Chrome (about a minute).',
+        (info.macOS ? 'The first send on this Mac also prepares its private browser (about a minute).'
+          : 'The browser windows run on a private virtual display on the server.'),
     }
   }
-  if (!info.macOS) {
+  if (!info.ready) {
     return {
-      title: 'Google Meet bots need a Mac',
-      text: 'Meet guests are real Chrome windows driven through Apple Events — run Call Bots on macOS for Meet.',
-    }
-  }
-  if (!info.chromeReady) {
-    return {
-      title: 'Google Chrome is required for Meet',
-      text: 'Meet guests run in a copy of Google Chrome — install it, then send again.',
+      title: 'Google Meet needs setup',
+      text: info.reason || 'The Meet browser is unavailable on this machine.',
     }
   }
   return {
@@ -617,17 +615,14 @@ const renderMeetBar = () => {
   const info = meetInfo()
   bar.hidden = false
   bar.classList.toggle('-short', meetUnavailable())
-  $('#meetBarText').innerHTML = !info.macOS
-    ? 'need <b>macOS</b>'
-    : !info.chromeReady
-      ? 'need <b>Google Chrome</b> installed'
-      : 'no setup — the host admits them'
-  // The bots' windows exist but stay hidden, like every other bot's browser;
-  // the switch is there for watching one, and only while there is one.
+  $('#meetBarText').textContent = info.ready
+    ? 'the host admits them' : info.reason || 'Meet is unavailable'
+  // Mac Meet starts visible; the user can explicitly hide an existing call.
+  // Linux has a private virtual display and no desktop windows to expose.
   const session = S.state?.session
   const live = Boolean(session) && ['joining', 'running'].includes(S.state?.status)
   const windows = $('#windowsBtn')
-  windows.hidden = !live
+  windows.hidden = !live || !info.windowsSupported
   windows.textContent = session?.windowsVisible ? 'Hide windows' : 'Show windows'
 }
 $('#windowsBtn').onclick = async (event) => {
@@ -667,7 +662,7 @@ const syncPlatformUi = () => {
 
   const status = S.state?.status
   const busy = status === 'joining' || status === 'stopping'
-  // Meet guests run in a copy of the real Google Chrome, on a Mac; Aloqa bots
+  // Meet guests run in bundled Chrome for Testing; Aloqa bots
   // run on the bundled Chromium.
   const browserUnavailable = S.state && (
     id === 'meet'
@@ -1087,7 +1082,7 @@ const flushVolumes = async () => {
         }
         if (failures.length) toast(failures.join('; '), '-err')
       } catch (error) {
-        if (ui === volumeUi) toast(`Audio: ${error.message}`, '-err')
+        if (ui === volumeUi) toast(`Volume: ${error.message}`, '-err')
       } finally {
         if (ui.drafts.get(slug) === request) ui.drafts.delete(slug)
         if (ui === volumeUi) renderVolumes()
@@ -1486,7 +1481,7 @@ const liveCodecs = (snap) => {
 // that changes; values follow the server state unless the user is mid-pick.
 const updateCodecBar = (guest, card, caps, live, negotiated) => {
   const bar = $('[data-codec-bar]', card)
-  if (!caps) {
+  if (!caps || capabilities().codecs === false) {
     bar.hidden = true
     return
   }
@@ -1717,7 +1712,7 @@ const render = (state) => {
     $('#goBtn').disabled = true
   } else if (!state.browserReady) {
     $('#emptyTitle').textContent = 'No browser available'
-    $('#emptyText').textContent = 'Install Google Chrome, or run: npx playwright install chromium'
+    $('#emptyText').textContent = 'Reopen Call Bots to download its browser, or run: npx playwright install chromium'
   } else {
     $('#emptyTitle').textContent = 'No bots in a call yet'
     $('#emptyText').textContent = 'Paste the call link, choose how many bots, and send them in.'

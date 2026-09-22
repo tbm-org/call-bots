@@ -25,6 +25,7 @@
 //   aesend <pid> close <window-id>
 //   aesend <pid> hide                       hide the application (all its windows)
 //   aesend <pid> unhide                     show it again
+//   aesend <pid> visibility                 actual application visibility
 //   aesend <pid> quit
 
 import AppKit
@@ -263,10 +264,20 @@ case "quit":
 // anyone's say-so, no permission asked. A hidden application's windows are
 // off screen and out of the Dock's window list, and Chrome — launched with
 // occlusion backgrounding off — keeps rendering them all the same.
-case "hide", "unhide":
+case "hide", "unhide", "visibility":
   guard let running = NSRunningApplication(processIdentifier: pid) else { fail("Apple Event error -600 no such process") }
-  let done = command == "hide" ? running.hide() : running.unhide()
-  print(done ? "ok" : "not " + command + "den")
+  if command != "visibility" {
+    let wanted = command == "hide"
+    if running.isHidden != wanted {
+      _ = wanted ? running.hide() : running.unhide()
+      let deadline = Date().addingTimeInterval(2)
+      while running.isHidden != wanted && Date() < deadline {
+        RunLoop.current.run(until: Date().addingTimeInterval(0.02))
+      }
+    }
+    if running.isHidden != wanted { fail("macOS could not \(command) the bot browser") }
+  }
+  print(running.isHidden ? "hidden" : "visible")
 
 default:
   fail("unknown command \(command)")

@@ -21,7 +21,7 @@ usage:
 options:
   --bots <n>         how many bots to send (default 2)
   --label <text>     custom bot label
-  --headed           show the bot browser windows (default: headless)
+  --headed           show Aloqa windows (Mac Meet is visible; Linux Meet uses a virtual display)
   --browser <name>   chrome, chromium, or auto (default)
   --share <n|all>    have that many bots share a screen once they are in
   --camera <on|off>  arrive with the camera on or off (default on)
@@ -36,9 +36,12 @@ options:
   --regen            rebuild the media even if it is cached
 
 Aloqa bots join anonymously, and so do Google Meet bots — they type a name and
-wait for the host to admit them, with nothing to set up. Meet bots need macOS
-and Google Chrome installed, and Meet refuses anonymous visitors for meetings
-created by a personal Google account.`
+wait for the host to admit them. Meet needs macOS with bundled Chrome for Testing, or Linux
+x86_64 with the bundled browser, Xvfb and xauth (included in the Linux container).
+Linux Meet runs as a non-root user with Chrome's sandbox enabled.
+The meeting must allow anonymous guests.
+For containers, CALL_BOTS_HOST=0.0.0.0 binds the dashboard inside the container;
+publish its port on host localhost only. Normal installs bind to 127.0.0.1.`
 
 const parseCli = () => {
   const { values, positionals } = parseArgs({

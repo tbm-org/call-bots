@@ -7,6 +7,33 @@ Everything below about Google Meet was measured against live Meet on
 2026-09-02, not inferred. Re-measure before trusting any of it again — Google
 changes this without notice, and none of it is documented by them.
 
+## Linux Meet
+
+`src/meet-linux/` adds the Linux x86_64 driver: full bundled Chrome for Testing,
+Xvfb, static extension commands and per-profile native messaging. Never attach
+CDP or disable Chrome's sandbox. The Apple Events history below describes the
+Mac driver; its old Linux restrictions do not describe the new extension path.
+`meet-page.mjs` is shared by both drivers. The raw `aesend` helper accepts
+multiline JavaScript; do not flatten functions that rely on semicolon insertion.
+Container startup is `scripts/linux-server.sh`; it requires Docker access,
+publishes only loopback port 14610, and guards a 20 GiB host RAM reserve.
+Do not change host packages/security or unrelated services to make it run.
+
+## Current Meet audio and Mac visibility
+
+Both drivers use `src/meet-extension/` for the document-start gain shim and
+fixed native volume commands. `Guest.audioSetting` owns the revision; restore
+it before capture and acknowledge it before committing dashboard state.
+Mac now copies pinned Chrome for Testing, not the user's Google Chrome.
+Its audio-service sandbox cannot read arbitrary fake-input WAVs (measured
+`Failed to read ... as input to the fake device`). Package the bot recording
+inside its private extension and play it through the gain graph; retain native
+capture for device settings/lifecycle. Do not disable the sandbox to fix this.
+Mac Meet windows stay visible by default, including added bots. The user
+rejected automatic reveal/hide after observing startup flashes. Keep only
+explicit dashboard Show/Hide; focus the Meet window before starting a share.
+The historical launch recipes below predate these changes.
+
 ## Why Google Meet refuses a guest bot
 
 A Meet bot joins anonymously — types a name, asks to be let in. (Until
@@ -454,6 +481,9 @@ a commit after the release tag. Keep the `codex/updates` compatibility tag:
 feed for older apps. A version has to be
 given on the command line — nothing infers one. Check the latest published version on
 GitHub before choosing the next version.
+
+Delta sources must be exact published ZIPs verified against GitHub's digest and
+the signed release feed; never rebuild historical versions to make patches.
 
 ## Verification
 

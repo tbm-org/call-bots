@@ -1,3 +1,5 @@
+import { meetPageCommand } from './meet-page.mjs'
+
 // Google Meet — as a guest.
 //
 // A Meet bot joins anonymously: it types a name and asks to be let in, the way
@@ -5,11 +7,10 @@
 // second way in until 2026-09-03; they needed one Google account per bot and
 // a profile store to manage, and were removed for it.)
 //
-// Guests are not always allowed. Meet refuses anonymous visitors outright for
-// any meeting created by a PERSONAL Google account — no name field, just "You
-// can't join this video call", and that holds even while the host is sitting in
-// the call. Workspace meetings can permit them if the admin has. The adapter
-// says which of those happened rather than leaving a bot to time out.
+// Guest access depends on the meeting's access settings and, for Workspace,
+// the administrator's policy. Open meetings can admit guests directly;
+// others require the host or refuse anonymous entry. Read Meet's response
+// instead of inferring access from the organizer's account type.
 //
 // Meet has no test ids and re-renders constantly, so this adapter never walks a
 // fixed script. It reads the page once per tick — one evaluate, one forced
@@ -43,8 +44,8 @@ const POLL_LOBBY = 2_000
 //
 // rtc — WORKS, and it is the one that matters: the camera watchdog and the
 //   dark-camera heal ladder run on it. A guest window reads its stats out of
-//   chrome://webrtc-internals (see guest-browser.mjs), which sees the peer
-//   connections Meet keeps in module closures out of any page script's reach.
+//   chrome://webrtc-internals on Mac (see guest-browser.mjs). Linux captures
+//   peer connections at document start and uses the shared stream monitor.
 //
 // screen — WORKS, for a guest. It did not for the signed-in account bots that
 //   used to live here: those had our capture shim answering getDisplayMedia,
@@ -67,7 +68,7 @@ export const capabilities = Object.freeze({
   screen: true,
   rtc: true,
   codecs: false,
-  volume: false,
+  volume: true,
 })
 
 export const SEL = {
@@ -128,7 +129,7 @@ const REFUSALS = [
 ]
 
 const SIGNED_OUT = /Sign in to (?:join|continue)|Choose an account to continue|Use your Google Account/iu
-const LOBBY = /Asking to be let in|Waiting for (?:the host|someone)|You'?ll join(?: the call)? when someone lets you in|let you in/iu
+const LOBBY = /Asking to be let in|Waiting for (?:the host|someone)|You'?ll join(?: the call)? when someone lets you in|let you in|Please wait until a meeting host brings you into the call/iu
 const DEVICE_TROUBLE = /(?:camera|microphone) is (?:in use|blocked|not available)|no camera found|can'?t (?:find|use) your (?:camera|microphone)/iu
 
 const CODE_RE = /^[a-z]{3}-[a-z]{4}-[a-z]{3}$/u
@@ -236,145 +237,29 @@ const classify = (read, url) => {
   return { stage: 'loading' }
 }
 
-// ---------------------------------------------------------------------------
-// Talking to the page.
-//
-// Everything below goes through one primitive: evaluate a single-line
-// JavaScript expression that returns a JSON string. That is the only thing a
-// guest window can do — it is driven through Chrome's AppleScript interface,
-// which takes a string and nothing else — and a Playwright page does it too, so
-// one adapter drives both kinds of bot.
-//
-// Single line is not a style choice. AppleScript string literals cannot span
-// lines, and a multi-line script comes back as `missing value` rather than an
-// error.
-
-const oneLine = (source) => source.replace(/\s*\n\s*/gu, ' ').trim()
-
-// Inlined into every source below. No `//` comments in here, and no literal
-// newlines — write `[\r\n]` in a character class instead.
-const HELPERS = `
-var __vis = function (e) {
-  return !!(e && (e.offsetWidth || e.offsetHeight || (e.getClientRects && e.getClientRects().length)))
-};
-var __all = function (s) { return [].slice.call(document.querySelectorAll(s)).filter(__vis) };
-var __label = function (e) {
-  return ((e && (e.getAttribute('aria-label') || e.textContent)) || '').replace(/\\s+/g, ' ').trim()
-};
-var __find = function (rx) {
-  var r = new RegExp(rx, 'i'), i;
-  var n = __all('button,[role=button],[role=menuitem]');
-  for (i = 0; i < n.length; i += 1) { if (r.test(__label(n[i]))) return n[i] }
-  var best = null, all = document.querySelectorAll('*');
-  for (i = 0; i < all.length; i += 1) {
-    var e = all[i];
-    if (!__vis(e)) continue;
-    if (!r.test(__label(e))) continue;
-    if (!best || e.compareDocumentPosition(best) & Node.DOCUMENT_POSITION_CONTAINS) best = e;
-    else if (best.contains(e)) best = e;
+// Shared DOM commands: static extension code on Linux, Apple Events on macOS.
+const pageCommand = async (page, command, args = {}) => {
+  const input = {
+    ...args,
+    selectors: SEL,
+    patterns: {
+      join: JOIN_NAME.source, ask: ASK_NAME.source, dismiss: DISMISS_NAME.source,
+      consent: CONSENT_NAME.source, noDevices: NO_DEVICES_NAME.source,
+      useDevices: USE_DEVICES_NAME.source, lobby: LOBBY.source,
+    },
   }
-  return best
-};
-var __device = function (sel) {
-  var f = __all(sel), el = null, i;
-  for (i = 0; i < f.length; i += 1) { if (f[i].hasAttribute('data-is-muted')) { el = f[i]; break } }
-  if (!el) el = f[0];
-  if (!el) return 'unknown';
-  if (el.getAttribute('aria-disabled') === 'true' || el.disabled === true) return 'request';
-  var m = el.getAttribute('data-is-muted');
-  if (m === 'true') return 'off';
-  if (m === 'false') return 'on';
-  var n = __label(el).toLowerCase();
-  if (/turn on/.test(n)) return 'off';
-  if (/turn off/.test(n)) return 'on';
-  return 'unknown'
-};
-`
-
-const js = (value) => JSON.stringify(value)
-
-// Whatever comes back, hand the caller a value. A Playwright page returns the
-// string the expression produced; a guest window has already tried to parse it.
-const evaluate = async (page, source) => {
+  if (page.meetCommand) return page.meetCommand(command, input)
+  const source = `JSON.stringify((${meetPageCommand.toString()})(${JSON.stringify(command)},${JSON.stringify(input)}))`
+  // aesend carries JavaScript as a raw Apple Event string (not an AppleScript
+  // string literal), so preserve newlines and JavaScript's statement boundaries.
   const raw = await page.evaluate(source)
-  if (raw === null || raw === undefined) return null
   if (typeof raw !== 'string') return raw
-  try {
-    return JSON.parse(raw)
-  } catch {
-    return raw
-  }
+  try { return JSON.parse(raw) } catch { throw new Error(`Meet page command failed: ${raw.slice(0, 160)}`) }
 }
-
-const readSource = (withText) =>
-  oneLine(`(function(){${HELPERS}
-    var leave = __all(${js(SEL.leaveButton)}).length > 0;
-    var headline = (leave || !${withText ? 'true' : 'false'})
-      ? ''
-      : ((document.body ? document.body.innerText : '') || '')
-          .replace(/[\\r\\n]{2,}/g, '\\n').slice(0, 1500);
-    return JSON.stringify({
-      offline: navigator.onLine === false,
-      leave: leave,
-      mic: __device(${js(SEL.mic)}),
-      cam: __device(${js(SEL.cam)}),
-      nameField: __all(${js(SEL.anonymousName)}).length > 0,
-      named: !!(__all(${js(SEL.anonymousName)})[0] || {}).value,
-      joinButton: !!__find(${js(JOIN_NAME.source)}),
-      askToJoin: !!__find(${js(ASK_NAME.source)}),
-      dismissible: !!__find(${js(DISMISS_NAME.source)}),
-      useDevices: !!__find(${js(USE_DEVICES_NAME.source)}),
-      consent: !!__find(${js(CONSENT_NAME.source)}),
-      noDevices: !!__find(${js(NO_DEVICES_NAME.source)}),
-      presenting: __all(${js(SEL.stopPresent)}).length > 0,
-      canPresent: __all(${js(SEL.present)}).length > 0,
-      headline: headline
-    })
-  })()`)
-
-const readPage = (page, { withText = false } = {}) => evaluate(page, readSource(withText))
-
-// Clicking is `element.click()`, the same call the page's own code makes. There
-// is no locator here to auto-wait, so the join loop retries instead.
-const clickNamed = (page, pattern) =>
-  evaluate(
-    page,
-    oneLine(`(function(){${HELPERS}
-      var el = __find(${js(pattern.source)});
-      if (!el) return 'false';
-      el.click();
-      return 'true'
-    })()`),
-  ).then((ok) => ok === true).catch(() => false)
-
-const clickSelector = (page, selector) =>
-  evaluate(
-    page,
-    oneLine(`(function(){${HELPERS}
-      var f = __all(${js(selector)}), el = null, i;
-      for (i = 0; i < f.length; i += 1) { if (f[i].hasAttribute('data-is-muted')) { el = f[i]; break } }
-      if (!el) el = f[0];
-      if (!el) return 'false';
-      el.click();
-      return 'true'
-    })()`),
-  ).then((ok) => ok === true).catch(() => false)
-
-// Meet's name field is React-controlled: assigning to .value updates the DOM
-// and leaves React's state untouched, so the join button stays disabled.
-const typeName = (page, displayName) =>
-  evaluate(
-    page,
-    oneLine(`(function(){${HELPERS}
-      var el = __all(${js(SEL.anonymousName)})[0];
-      if (!el) return 'false';
-      var set = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-      set.call(el, ${js(String(displayName ?? '').slice(0, 60))});
-      el.dispatchEvent(new Event('input', { bubbles: true }));
-      el.dispatchEvent(new Event('change', { bubbles: true }));
-      return 'true'
-    })()`),
-  ).then((ok) => ok === true).catch(() => false)
+const readPage = (page, { withText = false } = {}) => pageCommand(page, 'read', { withText })
+const clickNamed = (page, pattern) => pageCommand(page, 'click-name', { pattern: pattern.source }).then((value) => value === true).catch(() => false)
+const clickSelector = (page, selector) => pageCommand(page, 'click-selector', { selector }).then((value) => value === true).catch(() => false)
+const typeName = (page, name) => pageCommand(page, 'type-name', { name: String(name ?? '') }).then((value) => value === true).catch(() => false)
 
 // ---------------------------------------------------------------------------
 // Devices.
@@ -430,9 +315,7 @@ const setDevice = async ({ page, log }, kind, which, on) => {
 // ---------------------------------------------------------------------------
 // Screen share.
 //
-// Disabled by capability — live Meet is handed a real track and then refuses to
-// start presenting — but kept correct against the DOM so re-enabling it is one
-// boolean if that ever changes.
+// Both native drivers share their own scene tab using Chrome's tab capture.
 
 const screenOf = (read) => {
   if (read.presenting) return 'on'
@@ -475,17 +358,16 @@ const setScreen = async (ctx, on) => {
     if (!(await clickNamed(page, STOP_NAME))) await clickSelector(page, SEL.stopPresent)
   } else {
     await ctx.prepareScreen()
+    await page.beginScreenCapture?.()
     if (!(await clickSelector(page, SEL.present))) {
       log.warn('the present control did not accept a click')
       return screenState(page)
     }
-    // Which entry gets picked only decides what Meet ASKS for; the capture shim
-    // decides what it gets. Absent on a live Meet, which shows no menu at all.
     await clickNamed(page, /a tab|chrome tab|entire screen|a window/iu)
   }
 
   const deadline = Date.now() + SHARE_TIMEOUT
-  while (Date.now() < deadline) {
+  while (Date.now() < deadline && !page.isClosed()) {
     if ((await screenState(page)) === want) return want
     await page.waitForTimeout(300)
   }
@@ -497,9 +379,9 @@ const setScreen = async (ctx, on) => {
 const STOP_NAME = /^(?:cancel_presentation)?stop (?:presenting|sharing)$/iu
 
 const REFUSED_GUEST =
-  'this meeting does not take guests — Meet refuses anonymous visitors for any ' +
-  'meeting created by a personal Google account. Use a meeting from a Google ' +
-  'Workspace account whose admin allows guests, or ask the host to let them in.'
+  'this meeting is refusing anonymous guests. Ask the host to allow guests ' +
+  'in the meeting access settings and admit the bot; a Workspace administrator ' +
+  'may also restrict guest access.'
 
 const join = async (ctx) => {
   const { page, target, log, fail, options, setWaitingAdmission, displayName } = ctx
@@ -523,6 +405,7 @@ const join = async (ctx) => {
   let clickedAt = 0
   let sawMeet = false // anything but a blank page, ever
   let reloaded = false
+  let loadingSince = null
 
   for (;;) {
     // A bot closed while it was still joining — a Stop mid-batch, a card
@@ -536,6 +419,18 @@ const join = async (ctx) => {
       setWaitingAdmission?.(false)
       throw new Error(`[${displayName}] closed while it was joining`)
     }
+
+    if (Date.now() > deadline) {
+      setWaitingAdmission?.(false)
+      const message =
+        phase === 'lobby'
+          ? 'nobody admitted this guest — admit it in Meet, or allow guest access'
+          : phase === 'joining'
+            ? 'Meet accepted the click but the call never opened'
+            : 'the Google Meet preview never appeared (wrong link, blocked account, or changed UI)'
+      await fail(phase === 'entry' ? 'entry' : 'join', message)
+    }
+
 
     // A page that has drawn nothing by the halfway mark gets one more load:
     // a request Meet dropped on the way in, or a window still on its new-tab
@@ -559,6 +454,23 @@ const join = async (ctx) => {
     // Sync on a Playwright page, async on a guest window.
     const url = await Promise.resolve(page.url()).catch(() => '')
     const { stage, detail } = classify(read, url)
+    if (stage === 'loading') loadingSince ??= Date.now()
+    else loadingSince = null
+    // Occasionally Meet returns to "Getting ready" after a join click and
+    // never opens a lobby. Retry that stalled load once; a real admission
+    // wait is a different stage and must be left alone.
+    if (loadingSince && Date.now() - loadingSince > JOIN_TIMEOUT && !reloaded) {
+      reloaded = true
+      log.info('Meet stopped loading — opening the meeting again')
+      setWaitingAdmission?.(false)
+      phase = 'entry'
+      armed = false
+      clickedAt = 0
+      loadingSince = null
+      await page.goto(target.url, { waitUntil: 'domcontentloaded' })
+      deadline = Date.now() + ENTRY_TIMEOUT
+      continue
+    }
     if (stage !== 'loading') sawMeet = true
     if (process.env.CALL_BOTS_DEBUG_MEET) {
       console.error('[meet]', stage, JSON.stringify({ ...read, headline: read.headline.slice(0, 90) }))
@@ -665,7 +577,7 @@ const join = async (ctx) => {
           deadline = Date.now() + (asking ? ADMISSION_TIMEOUT : JOIN_TIMEOUT)
           if (asking) {
             setWaitingAdmission?.(true)
-            log.info('waiting in the Google Meet lobby — admit this account')
+            log.info('waiting in the Google Meet lobby — admit this guest')
           } else {
             log.info('joining Google Meet')
           }
@@ -681,10 +593,10 @@ const join = async (ctx) => {
       phase = 'lobby'
       deadline = Date.now() + ADMISSION_TIMEOUT
       setWaitingAdmission?.(true)
-      log.info('waiting in the Google Meet lobby — admit this account')
+      log.info('waiting in the Google Meet lobby — admit this guest')
     }
 
-    if (looksNonEnglish(read)) {
+    if (stage === 'loading' && looksNonEnglish(read)) {
       nonEnglishSince ??= Date.now()
       if (Date.now() - nonEnglishSince > 15_000) {
         await fail(
@@ -697,105 +609,12 @@ const join = async (ctx) => {
       nonEnglishSince = null
     }
 
-    if (Date.now() > deadline) {
-      setWaitingAdmission?.(false)
-      const message =
-        phase === 'lobby'
-          ? 'nobody admitted this Google account — admit it in Meet, or invite it to the meeting'
-          : phase === 'joining'
-            ? 'Meet accepted the click but the call never opened'
-            : 'the Google Meet preview never appeared (wrong link, blocked account, or changed UI)'
-      await fail(phase === 'entry' ? 'entry' : 'join', message)
-    }
 
     await page.waitForTimeout(phase === 'lobby' ? POLL_LOBBY : POLL_FAST)
   }
 }
 
-// ---------------------------------------------------------------------------
-// Participants.
-//
-// A string evaluate like everything else here, so a guest window can answer it
-// too: this is what the dashboard's verify and recoverIfAdmitted run on.
-//
-// Two things about today's Meet shape this. A tile carries no name attribute —
-// no data-self-name, no aria-label — so the name is read the way the stream
-// rows read theirs: the leaf text inside the tile, with control labels, icon
-// ligatures and timers rejected. And Meet paints one participant into more
-// than one <video>, the first of which need not be the one with the picture,
-// so a tile counts as playing when any of its videos is.
-//
-// NOTE: no // comments inside the template below — oneLine() collapses it to a
-// single line, and everything after such a comment would be lost. Which is
-// exactly how this returned "missing value" once.
-
-const REMOTE_SOURCE = oneLine(`(function(){${HELPERS}
-  var tiles = [].slice.call(document.querySelectorAll(${js(SEL.tile)})).filter(function (t) {
-    return __vis(t) && !(t.parentElement && t.parentElement.closest(${js(SEL.tile)}))
-  });
-  var summary = { local: 0, remote: 0, remotePlaying: 0, frozen: 0, names: [] };
-  var now = Date.now();
-  var seen = window.__botMeetFrames__ = window.__botMeetFrames__ || new Map();
-  var connections = window.__botPeerConnections__ || null;
-  var receiving = {};
-  try {
-    if (connections) connections.forEach(function (pc) {
-      (pc.getReceivers ? pc.getReceivers() : []).forEach(function (r) { if (r.track && r.track.id) receiving[r.track.id] = 1 })
-    })
-  } catch (e) {}
-  var live = function (v) { return v && v.readyState >= 2 && v.videoWidth > 0 && !v.paused };
-  var NAMEJUNK = /^(your|my|own|self|local|remote|the|a|an|is|video|audio|camera|microphone|mic|screen|share|shared|sharing|view|feed|stream|preview|presentation|participant|placeholder|avatar|thumbnail|tile|muted|unmuted|off|on|pinned|speaker|you|excellent|good|fair|poor|connection|quality|network|status|speaking|guest|host|owner|admin|moderator|others|might|still|see|full)$/i;
-  var tileName = function (tile) {
-    var counts = {}, order = [], kids = tile.querySelectorAll('*');
-    for (var i = 0; i < kids.length && i < 120; i++) {
-      var k = kids[i];
-      if (k.children && k.children.length) continue;
-      try { if (k.closest('button,[role="button"],[role="menuitem"],[role="img"],[aria-hidden="true"]')) continue } catch (e) {}
-      var t = (k.textContent || '').replace(/\\s+/g, ' ').trim();
-      if (!t || t.length > 40 || /^[\\d\\s:.%]+$/.test(t) || /^[a-z0-9]+(_[a-z0-9]+)+$/.test(t)) continue;
-      var parts = t.split(/[\\s\\-_,./]+/).filter(Boolean), junk = parts.length > 0 && parts.length <= 4;
-      for (var p = 0; p < parts.length && junk; p++) if (!NAMEJUNK.test(parts[p])) junk = false;
-      if (junk) continue;
-      if (!counts[t]) { counts[t] = 0; order.push(t) }
-      counts[t]++
-    }
-    for (var j = 0; j < order.length; j++) if (counts[order[j]] > 1) return order[j];
-    return order.length ? order[order.length - 1] : '';
-  };
-  var playsRemote = function (video) {
-    try { return (video && video.srcObject ? video.srcObject.getTracks() : []).some(function (t) { return receiving[t.id] }) }
-    catch (e) { return false }
-  };
-  tiles.forEach(function (tile) {
-    var aria = tile.getAttribute('aria-label') || '';
-    var videos = [].slice.call(tile.querySelectorAll('video'));
-    var video = null;
-    for (var vi = 0; vi < videos.length; vi++) if (live(videos[vi])) { video = videos[vi]; break }
-    if (!video) video = videos[0] || null;
-    var own = !!tile.querySelector('[aria-label*="Reframe" i], [aria-label*="Backgrounds" i], [aria-label*="effects" i]');
-    var local = connections ? !playsRemote(video)
-      : (tile.hasAttribute('data-self-name') || /\\b(?:you|your)\\b/i.test(aria) || own);
-    var rawName = tile.getAttribute('data-self-name') || tile.getAttribute('data-sort-key') ||
-      (tile.querySelector('[data-self-name]') && tile.querySelector('[data-self-name]').getAttribute('data-self-name')) || aria || null;
-    var name = rawName ? String(rawName).split('_')[0].trim() : tileName(tile);
-    if (name) summary.names.push((local ? '*' : '') + name);
-    if (local) { summary.local += 1; return }
-    summary.remote += 1;
-    if (live(video)) {
-      summary.remotePlaying += 1;
-      var id = tile.getAttribute('data-participant-id') || name || String(summary.remote);
-      var last = seen.get(id);
-      if (last && now - last.at > 1000) {
-        if (last.time === video.currentTime) summary.frozen += 1;
-        seen.set(id, { time: video.currentTime, at: now })
-      } else if (!last) seen.set(id, { time: video.currentTime, at: now })
-    }
-  });
-  if (summary.local === 0 && __all(${js(SEL.leaveButton)}).length > 0) summary.local = 1;
-  return JSON.stringify(summary)
-})()`)
-
-const remote = (page) => evaluate(page, REMOTE_SOURCE)
+const remote = (page) => pageCommand(page, 'remote')
 
 export default {
   id: 'meet',

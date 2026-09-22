@@ -36,7 +36,7 @@ const toYuv420 = (rgb, width, height, channels, out) => {
 // properly anti-aliased and the gradients are as smooth as the browser can make
 // them. Returns a complete y4m buffer.
 export const renderClip = async ({ theme, width, height, fps, seconds, onProgress }) => {
-  const browser = await chromium.launch({ channel: launchChannel(), headless: true })
+  const browser = await chromium.launch({ channel: launchChannel(), headless: true, chromiumSandbox: process.env.CALL_BOTS_CONTAINER === '1' })
   try {
     const page = await browser.newPage({
       viewport: { width, height },

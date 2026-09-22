@@ -31,34 +31,37 @@
 //
 // See CLAUDE.md for the measurements behind every line of this.
 
+import { randomBytes } from 'node:crypto'
 import { execFile, spawn } from 'node:child_process'
 import {
   existsSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
+  readFileSync,
   rmSync,
   statSync,
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import { promisify } from 'node:util'
 
-import { RUN_MARKER, SCREEN_TITLE, googleChromePath } from './browser.mjs'
+import { RUN_MARKER, SCREEN_TITLE, bundledChromiumPath } from './browser.mjs'
 import { baseDir, projectRoot } from './config.mjs'
+import { MeetBridge } from './meet-extension/bridge.mjs'
+import { prepareExtension } from './meet-extension/extension.mjs'
+import { guestColorHex } from './fixtures.mjs'
 import { plain as log } from './log.mjs'
 
 const run = promisify(execFile)
 
 export const BUNDLE_ID = 'com.aloqa.call-bots.browser'
 const BUNDLE_PATH = join(baseDir, 'Call Bots Browser.app')
-// Wherever the user's Chrome actually is: /Applications for most people,
-// ~/Applications for the ones who install without admin rights.
-const sourceApp = () => {
-  const binary = googleChromePath()
-  return binary ? binary.replace(/\/Contents\/MacOS\/Google Chrome$/u, '') : null
-}
+// The dependency lock selects the exact browser revision on both platforms.
+const sourceApp = () => bundledChromiumPath()?.split('/Contents/MacOS/')[0] ?? null
+const bundleBinary = (app) => join(app, 'Contents/MacOS', basename(bundledChromiumPath()))
+const BUNDLE_SOURCE = join(BUNDLE_PATH, 'Contents/Resources/call-bots-source.json')
 const READY_TIMEOUT = 60_000
 // How long a closing browser gets to exit on its own before it is killed.
 const EXIT_WAIT = 6000
@@ -103,12 +106,14 @@ const ensureHelper = () => {
 // One helper invocation: arguments, optional stdin, and a timeout that kills.
 // Ten seconds is long for one Apple Event and short enough that a browser too
 // busy to answer does not hold a queue slot for half a minute.
-const invoke = (helper, args, { input = null, timeout = 10_000 } = {}) =>
+const invoke = (helper, args, { input = null, timeout = 10_000, owner = null } = {}) =>
   new Promise((resolve, reject) => {
     const child = spawn(helper, args, {
       stdio: [input === null ? 'ignore' : 'pipe', 'pipe', 'pipe'],
       env: { ...process.env, AESEND_TIMEOUT: String(Math.ceil(timeout / 1000)) },
     })
+    owner?.helpers?.add(child)
+    child.once('close', () => owner?.helpers?.delete(child))
     let out = ''
     let err = ''
     let done = false
@@ -192,7 +197,8 @@ const speak = async (proc, args, options = {}) => {
   const helper = await ensureHelper()
   await turnToSpeak()
   try {
-    return await invoke(helper, [String(proc.child.pid), ...args], options)
+    if (proc.stopping && args[0] !== 'quit') throw new Error('The bot browser is stopping')
+    return await invoke(helper, [String(proc.child.pid), ...args], { ...options, owner: proc })
   } catch (error) {
     const message = String(error.message)
     if (NOT_PERMITTED.test(message)) throw new Error(PERMISSION_HELP)
@@ -240,18 +246,13 @@ export const ensureGuestBundle = () => {
 
 const buildGuestBundle = async () => {
   const source = sourceApp()
-  if (!source) {
-    throw new Error('Google Chrome is required for Meet guests — Meet turns away anything else')
+  if (!source) throw new Error('Meet needs bundled Chrome for Testing — reopen the dashboard to download it')
+  const version = await bundleVersion(source)
+  const identity = JSON.stringify({ source, version, executable: basename(bundledChromiumPath()) })
+  if (existsSync(bundleBinary(BUNDLE_PATH)) && existsSync(BUNDLE_SOURCE) && readFileSync(BUNDLE_SOURCE, 'utf8') === identity) {
+    return BUNDLE_PATH
   }
-  if (existsSync(join(BUNDLE_PATH, 'Contents/MacOS/Google Chrome'))) {
-    // Chrome updates itself; a copy left behind on an old version would one
-    // day meet Meet's "your browser isn't supported". Rebuild when they differ.
-    const [have, want] = await Promise.all([bundleVersion(BUNDLE_PATH), bundleVersion(source)])
-    if (!want || have === want) return BUNDLE_PATH
-    log.info(`Google Chrome is now ${want} — rebuilding the Call Bots browser (about a minute)`)
-  } else {
-    log.info('building the Call Bots browser for Meet guests — one time, about a minute')
-  }
+  log.info('preparing the private Chrome for Testing browser for Meet — one time per browser update')
   const staging = `${BUNDLE_PATH}.building`
   rmSync(staging, { recursive: true, force: true })
   await run('ditto', [source, staging], { timeout: 600_000 })
@@ -261,6 +262,7 @@ const buildGuestBundle = async () => {
   // Without this codesign refuses: "resource fork, Finder information, or
   // similar detritus not allowed".
   await run('xattr', ['-cr', staging], { timeout: 120_000 })
+  writeFileSync(join(staging, 'Contents/Resources/call-bots-source.json'), identity)
   await run('codesign', ['--force', '--sign', '-', staging], { timeout: 300_000 })
   rmSync(BUNDLE_PATH, { recursive: true, force: true })
   await run('mv', [staging, BUNDLE_PATH])
@@ -448,95 +450,106 @@ const removeProfile = (dir) => {
   }
 }
 
-const startProcess = async (media, options) => {
+// These AppKit calls address only our PID and do not request Automation access.
+// Read actual isHidden state: a failed hide must never look successful.
+const visibility = (proc, visible) => {
+  const operation = (proc.visibilityQueue || Promise.resolve()).then(async () => {
+    if (proc.stopping || !alive(proc)) throw new Error('The bot browser is closed')
+    const helper = await ensureHelper()
+    const result = await invoke(helper, [String(proc.child.pid), visible ? 'unhide' : 'hide'], { owner: proc })
+    if (result !== (visible ? 'visible' : 'hidden')) throw new Error(`The bot browser could not be ${visible ? 'shown' : 'hidden'}`)
+    return visible
+  })
+  proc.visibilityQueue = operation.catch(() => {})
+  return operation
+}
+
+const startProcess = async (media, options, guest) => {
   clearStaleProfiles()
   const [bundle] = await Promise.all([ensureGuestBundle(), ensureHelper()])
+  options.signal?.throwIfAborted()
   const userDataDir = mkdtempSync(join(tmpdir(), 'call-bots-meet-guests-'))
-  // Scripting is a per-profile preference with no command-line flag, and it has
-  // to be there before Chrome first reads the profile.
-  mkdirSync(join(userDataDir, 'Default'), { recursive: true })
-  const allow = { 'https://meet.google.com:443,*': { setting: 1 } }
-  writeFileSync(
-    join(userDataDir, 'Default', 'Preferences'),
-    JSON.stringify({
-      browser: { allow_javascript_apple_events: true },
-      // Nobody is here to click Allow. Without the camera and microphone
-      // already granted, Meet sits on "Continue without microphone and camera"
-      // and never offers to use them. Playwright's grantPermissions is not an
-      // option here — this window has no debugger attached, which is the whole
-      // point — so the grant is seeded as a content setting instead, the same
-      // record Chrome writes when a person clicks Allow.
-      profile: {
-        content_settings: {
-          exceptions: { media_stream_camera: allow, media_stream_mic: allow },
-        },
-      },
-    }),
-  )
-
-  const child = spawn(
-    join(bundle, 'Contents/MacOS/Google Chrome'),
-    [
-      `--user-data-dir=${userDataDir}`,
-      // Not incognito. A throwaway profile is already signed out, which is all
-      // a guest needs, and incognito refuses to inherit the camera and
-      // microphone grant seeded above — leaving Meet stuck offering to join
-      // without them.
-      '--lang=en-US',
-      '--no-first-run',
-      '--no-default-browser-check',
-      // Or macOS asks for the login password so this re-signed copy can read
-      // the real Chrome's "Chrome Safe Storage". A throwaway profile has no
-      // use for it.
-      '--use-mock-keychain',
-      '--password-store=basic',
-      '--mute-audio',
-      '--autoplay-policy=no-user-gesture-required',
-      // Full-size windows stack, and a window another covers counts as
-      // hidden: Chrome backgrounds its renderer and Meet pauses its video.
-      // A real user's window is on top; every bot's must behave as if it were.
-      '--disable-backgrounding-occluded-windows',
-      '--disable-renderer-backgrounding',
-      '--use-fake-device-for-media-stream',
-      // If Meet ever asks Chrome to capture a screen, capture the bot's own
-      // scene tab and never put a picker on the user's desktop. Harmless when
-      // nothing shares: the flag only speaks when getDisplayMedia is called.
-      `--auto-select-tab-capture-source-by-title=${SCREEN_TITLE}`,
-      // This process's own clip and voice: the flags are process-wide, and
-      // the process is this guest's alone.
-      ...(media && !options.noVideo ? [`--use-file-for-fake-video-capture=${media.video}`] : []),
-      ...(media && !options.noAudio ? [`--use-file-for-fake-audio-capture=${media.audio}`] : []),
-      `${RUN_MARKER}=${options.runId}`,
-      'about:blank',
-    ],
-    { stdio: 'ignore', detached: true },
-  )
-  const proc = { child, userDataDir }
-  processes.add(proc)
   pendingProfiles.add(userDataDir)
-  if (process.env.CALL_BOTS_DEBUG_MEET) console.error('[guest-browser] spawned pid', child.pid)
-
-  // The first answer takes as long as a person needs: the very first Apple
-  // Event to the bots' browser is what raises macOS's Automation prompt, and
-  // it blocks until that is answered. A pid cannot be launched, so asking too
-  // early only errors and is asked again.
-  const deadline = Date.now() + READY_TIMEOUT
-  while (Date.now() < deadline && alive(proc)) {
-    const count = await speak(proc, ['count'], { timeout: 120_000 }).catch((error) => {
-      if (error.message === PERMISSION_HELP) throw error
-      return null
+  let proc
+  let bridge
+  try {
+    mkdirSync(join(userDataDir, 'Default'), { recursive: true })
+    const allow = { 'https://meet.google.com:443,*': { setting: 1 } }
+    writeFileSync(join(userDataDir, 'Default', 'Preferences'), JSON.stringify({
+      browser: { allow_javascript_apple_events: true },
+      profile: { content_settings: { exceptions: { media_stream_camera: allow, media_stream_mic: allow } } },
+    }))
+    const socket = join(userDataDir, 'driver.sock')
+    const token = randomBytes(32).toString('hex')
+    bridge = new MeetBridge(socket, token, options.readVolume)
+    await bridge.listen()
+    const extension = await prepareExtension(userDataDir, socket, token, guest.label, guestColorHex((guest.n || 1) - 1), {
+      macOS: true, audio: !options.noAudio ? media?.audio : null,
     })
-    if (Number(count) >= 1) return proc
-    await new Promise((resolve) => setTimeout(resolve, 300))
+    options.signal?.throwIfAborted()
+    const child = spawn(bundleBinary(bundle), [
+      `--user-data-dir=${userDataDir}`, `--load-extension=${extension}`, `--disable-extensions-except=${extension}`,
+      '--no-startup-window', '--lang=en-US', '--no-first-run', '--no-default-browser-check',
+      '--enable-logging', `--log-file=${join(options.runDir || userDataDir, `${guest.n || 1}-chrome.log`)}`,
+      '--use-mock-keychain', '--password-store=basic', '--mute-audio',
+      '--autoplay-policy=no-user-gesture-required', '--disable-backgrounding-occluded-windows',
+      '--disable-renderer-backgrounding', '--disable-background-timer-throttling', '--use-fake-device-for-media-stream',
+      `--auto-select-tab-capture-source-by-title=${SCREEN_TITLE}`,
+      ...(media && !options.noVideo ? [`--use-file-for-fake-video-capture=${media.video}`] : []),
+      `${RUN_MARKER}=${options.runId}`,
+    ], { stdio: 'ignore', detached: true })
+    proc = { child, userDataDir, bridge, helpers: new Set() }
+    processes.add(proc)
+    bridge.onWindowCreated = () => {
+      if (!(options.windowsVisible?.() ?? options.headed) && !proc.stopping) {
+        visibility(proc, false).catch((error) => log.warn(error.message))
+      }
+    }
+    bridge.onDisconnect = (error) => { proc.failureReason = error.message; stop(proc).catch(() => {}) }
+    child.once('error', (error) => { proc.failureReason = error.message; bridge.close(error) })
+    child.once('exit', () => { bridge.close(new Error('The Meet browser exited')); proc.removeAbort?.() })
+    const abort = () => { stop(proc).catch(() => {}) }
+    options.signal?.addEventListener('abort', abort, { once: true })
+    proc.removeAbort = () => options.signal?.removeEventListener('abort', abort)
+    if (options.signal?.aborted) abort()
+    const deadline = Date.now() + READY_TIMEOUT
+    while (Date.now() < deadline && alive(proc) && !proc.stopping) {
+      options.signal?.throwIfAborted()
+      const count = await speak(proc, ['count'], { timeout: 120_000 }).catch((error) => {
+        if (error.message === PERMISSION_HELP) throw error
+        return null
+      })
+      if (count !== null && Number(count) >= 0) {
+        let timer
+        try {
+          await Promise.race([bridge.ready, new Promise((_, reject) => {
+            timer = setTimeout(() => reject(new Error('The Meet audio extension did not connect')), 30000)
+          })])
+        } finally { clearTimeout(timer) }
+        options.signal?.throwIfAborted()
+        if (proc.stopping) throw new Error('The Meet browser stopped while starting')
+        return proc
+      }
+      await new Promise((resolve) => setTimeout(resolve, 200))
+    }
+    throw new Error('The Call Bots browser did not start')
+  } catch (error) {
+    bridge?.close(error)
+    if (proc) await stop(proc)
+    else removeProfile(userDataDir)
+    throw error
   }
-  await stop(proc)
-  throw new Error('the Call Bots browser did not come up for this Meet guest')
 }
 
 // A polite quit, then the process's actual exit — so the orchestrator's sweep
 // never finds a browser still on its way out and reports it as a leftover —
 // and a kill for one that lingers: a throwaway profile has nothing to save.
-const stop = async (proc) => {
+const stop = (proc) => proc.stopPromise ??= stopProcess(proc)
+const stopProcess = async (proc) => {
+  proc.stopping = true
+  proc.removeAbort?.()
+  proc.bridge?.close()
+  for (const helper of proc.helpers || []) helper.kill('SIGTERM')
   processes.delete(proc)
   if (processes.size === 0) slots = 0
   if (alive(proc)) {
@@ -664,6 +677,7 @@ export class GuestWindow {
     // prints, so this window's connections can be told from any other's.
     this.tag = tag
     this.closed = false
+    this.delayWaiters = new Set()
     this.statsWindow = null
     this.statsPromise = null
     // Cumulative bytes per stream over the last RATE_WINDOW_MS of reads,
@@ -673,15 +687,15 @@ export class GuestWindow {
     this.inFlight = { summary: null, snapshot: null }
   }
 
-  static async open(media, options, { tag = 'guest', label = null } = {}) {
+  static async open(media, options, { tag = 'guest', label = null, n = 1 } = {}) {
     if (process.platform !== 'darwin') {
-      throw new Error('Meet guests need macOS — on this machine, send Meet bots as Google accounts')
+      throw new Error('This Meet window driver requires macOS')
     }
     killOnExit()
-    const proc = await startProcess(media, options)
+    const proc = await startProcess(media, options, { label, n })
     let windowId
     try {
-      windowId = (await speak(proc, ['window-id', '1'])).trim()
+      windowId = (await speak(proc, ['new-window'])).trim()
       if (!/^\d+$/u.test(windowId)) throw new Error('the Call Bots browser opened no window')
     } catch (error) {
       await stop(proc)
@@ -692,10 +706,11 @@ export class GuestWindow {
     }
     await placeWindow(proc, windowId, slots++)
     const window = new GuestWindow(proc, windowId, tag, label)
-    // Out of sight unless asked for, like every other bot's browser. Hidden,
-    // not smaller: measured minimised for half a minute, both guests kept
-    // sending 2.1 Mbps and receiving 1280×720 at 30 fps, thumbnails included.
-    if (!options.headed) await window.setVisible(false)
+    window.selectedVisibility = options.windowsVisible ?? (() => Boolean(options.headed))
+    // Meet starts visible on Mac. Only an explicit dashboard visibility
+    // choice hides it; there is no automatic reveal-and-hide startup cycle.
+    try { await window.setVisible(options.windowsVisible?.() ?? Boolean(options.headed)) }
+    catch (error) { await window.close(); throw error }
     return window
   }
 
@@ -703,9 +718,8 @@ export class GuestWindow {
   // window with it. The application is hidden, not the window minimised, so
   // nothing of it sits in the Dock either.
   async setVisible(visible) {
-    if (this.closed) return
-    await this.#speak([visible ? 'unhide' : 'hide']).catch(() => {})
-    this.visible = visible
+    if (this.isClosed()) throw new Error('The bot browser is closed')
+    this.visible = await visibility(this.proc, Boolean(visible))
   }
 
   // Refresh the track → name map from the tiles, at most every few seconds,
@@ -741,10 +755,12 @@ export class GuestWindow {
     if (this.statsWindow) return this.statsWindow
     const mine = (this.statsPromise ??= (async () => {
       const id = (await this.#speak(['new-window'])).trim()
+      if (!this.visible) await this.setVisible(false)
       if (!/^\d+$/u.test(id)) throw new Error('the Call Bots browser did not open a window')
       await this.#speak(['set-url', id, INTERNALS])
       // Nobody needs to see it; it keeps polling while minimised.
       await this.#speak(['minimize', id]).catch(() => {})
+      if (!this.visible) await this.setVisible(false)
       if (process.env.CALL_BOTS_DEBUG_MEET) console.error('[guest-browser] stats window', id, 'for', this.tag)
       return id
     })().catch((error) => {
@@ -1058,7 +1074,10 @@ export class GuestWindow {
           while (Date.now() < deadline) {
             const seen = await this.evaluate('location.host+" "+document.readyState').catch(() => null)
             const [where, state] = String(seen ?? '').split(' ')
-            if (where === host && (state === 'interactive' || state === 'complete')) return
+            if (where === host && (state === 'interactive' || state === 'complete')) {
+              if (!this.visible) await this.setVisible(false)
+              return
+            }
             await this.waitForTimeout(250)
           }
           return
@@ -1083,7 +1102,25 @@ export class GuestWindow {
   }
 
   waitForTimeout(ms) {
-    return new Promise((resolve) => setTimeout(resolve, ms))
+    if (this.isClosed()) return Promise.resolve()
+    return new Promise((resolve) => {
+      const finish = () => { clearTimeout(timer); this.delayWaiters.delete(finish); resolve() }
+      const timer = setTimeout(finish, ms)
+      this.delayWaiters.add(finish)
+    })
+  }
+
+  async beginScreenCapture() {
+    // Mac Chrome requires the requesting page in the foreground. Do not
+    // override a user's explicit Hide windows choice or hide it afterward.
+    if (!this.visible) throw new Error('Show the bot windows before starting screen sharing')
+    await this.proc.bridge.request('focus-meet')
+    const deadline = Date.now() + 3000
+    while (!this.isClosed() && Date.now() < deadline) {
+      if (await this.evaluate('document.visibilityState') === 'visible') return
+      await this.waitForTimeout(100)
+    }
+    throw new Error('The Meet window could not become visible for screen sharing')
   }
 
   // The picture this bot presents when it shares. Meet asks Chrome to capture
@@ -1101,6 +1138,7 @@ export class GuestWindow {
       this.sceneWindow = null
     }
     const id = Number(await this.#speak(['new-window']))
+    if (!this.visible) await this.setVisible(false)
     if (!Number.isFinite(id)) throw new Error('the Call Bots browser would not open a window for the share')
     await this.#speak(['set-url', id, `data:text/html;charset=utf-8,${encodeURIComponent(html)}`])
     // Tab capture sends the tab at the size it is drawn, so a default-sized
@@ -1109,6 +1147,7 @@ export class GuestWindow {
     // area as the guest's own window, for the same reason.
     await this.#speak(['bounds', id, '0', '40', String(WINDOW_W), String(WINDOW_H)]).catch(() => {})
     this.sceneWindow = id
+    if (!this.visible) await this.setVisible(false)
     return id
   }
 
@@ -1119,6 +1158,7 @@ export class GuestWindow {
     const raw = await this.evaluate(PAGE_REPORT).catch((error) => `{"error":${JSON.stringify(error.message)}}`)
     const page = typeof raw === 'object' && raw !== null ? raw : { error: String(raw ?? 'no answer') }
     const lines = [
+      `audio:      ${JSON.stringify(await this.audioState().catch((error) => ({ error: error.message })))}`,
       `url:        ${page.url ?? '(unknown)'}`,
       `title:      ${page.title ?? ''}`,
       `readyState: ${page.readyState ?? ''}   visibility: ${page.visibility ?? ''}`,
@@ -1150,14 +1190,17 @@ export class GuestWindow {
     return null
   }
 
-  isClosed() {
-    return this.closed
-  }
+  get audioControlReady() { return this.proc.bridge.audioReady && !this.isClosed() }
+  get failureReason() { return this.proc.failureReason }
+  setVolume(setting) { return this.proc.bridge.request('volume', setting) }
+  audioState() { return this.proc.bridge.request('audio-state') }
+  isClosed() { return this.closed || this.proc.stopping || !alive(this.proc) }
 
   // The whole process goes with the window: it was this guest's alone.
   async close() {
     if (this.closed) return
     this.closed = true
+    for (const finish of [...this.delayWaiters]) finish()
     await stop(this.proc)
   }
 }

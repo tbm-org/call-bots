@@ -5,7 +5,7 @@ import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { bundledChromiumPath, googleChromePath, systemChromePath } from './browser.mjs'
+import { bundledChromiumPath, meetReadiness, systemChromePath } from './browser.mjs'
 import { setGuestVolumes, volumePercent } from './audio.mjs'
 import { onLog, plain as log } from './log.mjs'
 import { machineProfile, systemUsage } from './machine.mjs'
@@ -56,10 +56,10 @@ const ensureBrowser = () => {
     cliPath = null
   }
   if (!cliPath || !existsSync(cliPath)) {
-    log.warn('cannot find the playwright CLI — install Google Chrome instead')
+    log.warn('cannot find the browser installer — reinstall Call Bots')
     return
   }
-  log.warn('downloading Chromium (one-time, ~175 MB)…')
+  log.warn('downloading bundled Chrome for Testing (one-time)…')
   browserInstall = spawn(process.execPath, [cliPath, 'install', 'chromium'], {
     stdio: ['ignore', 'pipe', 'pipe'],
   })
@@ -81,7 +81,7 @@ const ensureBrowser = () => {
   relay(browserInstall.stderr)
   browserInstall.on('exit', (code) => {
     log[code === 0 ? 'info' : 'warn'](
-      code === 0 ? 'Chromium ready' : 'Chromium download failed — install Google Chrome',
+      code === 0 ? 'Bundled browser ready' : 'Browser download failed — check your connection and reopen Call Bots',
     )
     browserInstall = null
     browserProgress = null
@@ -136,9 +136,7 @@ const computeSnapshot = async ({ withVerify = false } = {}) => {
       browserReady: bundledChromiumPath() !== null || systemChromePath() !== null,
       browserInstalling: browserInstall !== null,
       browserProgress,
-      // What Meet needs on this machine: Google Chrome, and macOS for the
-      // guests' driver. The dashboard says so instead of failing a send.
-      meet: { chromeReady: googleChromePath() !== null, macOS: process.platform === 'darwin' },
+      meet: await meetReadiness(),
       session: rosterState,
       verify: session.verify,
     },
@@ -190,6 +188,13 @@ const codecName = (value) => {
 const startSession = async (body) => {
   if (session.status !== 'idle') throw new Error(`a session is already ${session.status}`)
   const target = resolveLink(body.link ?? '')
+  if (target.platform === 'meet') {
+    const readiness = await meetReadiness()
+    if (!readiness.ready) throw new Error(readiness.reason)
+  }
+  // Readiness may load the Linux driver asynchronously. Another request can
+  // have started a session while that check was awaiting its dependencies.
+  if (session.status !== 'idle') throw new Error(`a session is already ${session.status}`)
   const count = Math.max(1, Math.min(50, Number(body.guests) || 1))
 
   const roster = new Roster({
@@ -285,7 +290,7 @@ const batchTarget = (slug) => {
 
 const runAction = async (slug, action, value) => {
   const roster = session.roster
-  if (!roster || session.status !== 'running') throw new Error('no running session')
+  if (!roster || !['joining', 'running'].includes(session.status)) throw new Error('no running session')
   const platform = platformById(roster.target?.platform)
   const capabilities = platform?.capabilities
   const label = platform?.label ?? 'this platform'
@@ -439,7 +444,8 @@ const localCaller = (request) => {
   }
 }
 
-export const startServer = async ({ port = 4610, open = true }) => {
+export const startServer = async ({ port = 4610, open = true, host = process.env.CALL_BOTS_HOST || '127.0.0.1' }) => {
+  if (!['127.0.0.1', '0.0.0.0', '::1'].includes(host)) throw new Error('CALL_BOTS_HOST must be 127.0.0.1, ::1, or 0.0.0.0')
   let snapshots = 0
 
   const server = http.createServer(async (request, response) => {
@@ -494,6 +500,14 @@ export const startServer = async ({ port = 4610, open = true }) => {
         response.end(JSON.stringify(data))
         return
       }
+      if (request.method === 'GET' && url.pathname.startsWith('/api/report/')) {
+        const guest = session.roster?.bySlug(decodeURIComponent(url.pathname.split('/').pop()))
+        if (!guest?.page?.report) throw new Error('Meet diagnostics are unavailable for this bot')
+        const report = await guest.page.report()
+        response.writeHead(200, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' })
+        response.end(report)
+        return
+      }
       if (request.method === 'POST' && url.pathname === '/api/start') {
         await startSession(await readBody(request))
         json(response, 200, { ok: true })
@@ -535,6 +549,7 @@ export const startServer = async ({ port = 4610, open = true }) => {
       }
       if (request.method === 'POST' && url.pathname === '/api/windows') {
         const body = await readBody(request)
+        if (!(await meetReadiness()).windowsSupported) throw new Error('Bot windows are on a private virtual display on this server')
         if (!session.roster) throw new Error('no running session')
         const shown = await session.roster.setWindowsVisible(body.visible !== false)
         json(response, 200, { ok: true, windows: shown })
@@ -574,9 +589,9 @@ export const startServer = async ({ port = 4610, open = true }) => {
           : error,
       )
     })
-    server.listen(port, '127.0.0.1', resolve)
+    server.listen(port, host, resolve)
   })
-  const address = `http://127.0.0.1:${port}`
+  const address = `http://${host === '::1' ? '[::1]' : '127.0.0.1'}:${port}`
   log.info(`ready at ${address}`)
   ensureBrowser()
   if (open) {

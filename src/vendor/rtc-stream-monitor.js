@@ -1860,6 +1860,17 @@
       return added;
     },
     rescan: discover,
+    // Share the monitor's conservative Meet audio-slot naming with dashboards.
+    meetAudioName: function (stream, names) {
+      if (!LAST) return null;
+      var model = LAST;
+      if (names) model = Object.assign({}, LAST, {
+        elements: (LAST.elements || []).map(function (element) {
+          return names[element.elTrack] ? Object.assign({}, element, names[element.elTrack]) : element;
+        })
+      });
+      return meetLikelyInboundAudioName(stream, model);
+    },
     dump: dumpAll,
     get model() { return LAST; }
   };

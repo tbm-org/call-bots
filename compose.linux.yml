@@ -1,0 +1,26 @@
+name: call-bots-linux-meet
+services:
+  dashboard:
+    build: .
+    platform: linux/amd64
+    init: true
+    user: "${CALL_BOTS_UID:?Start with scripts/linux-server.sh}:${CALL_BOTS_GID:?Start with scripts/linux-server.sh}"
+    environment:
+      HOME: /data
+    restart: "no"
+    ports:
+      - "127.0.0.1:14610:4610"
+    security_opt:
+      - "seccomp=./docker/chrome-seccomp.json"
+    cap_drop:
+      - ALL
+    # Private IPC. The launcher derives both budgets from host headroom.
+    shm_size: "${CALL_BOTS_MEMORY_BUDGET:?Start with scripts/linux-server.sh}"
+    mem_limit: "${CALL_BOTS_MEMORY_BUDGET:?Start with scripts/linux-server.sh}"
+    memswap_limit: "${CALL_BOTS_MEMORY_BUDGET:?Start with scripts/linux-server.sh}"
+    volumes:
+      - "./.server/container-data:/data"
+    labels:
+      org.call-bots.task: linux-meet
+      org.call-bots.launch: "${CALL_BOTS_LAUNCH_ID:?Start with scripts/linux-server.sh}"
+    stop_grace_period: 30s

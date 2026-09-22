@@ -51,8 +51,8 @@ const GOOGLE_CHROME_PATHS = {
 export const systemChromePath = () =>
   (CHROME_PATHS[process.platform] ?? []).find((path) => path && existsSync(path)) ?? null
 
-// Meet guests run in a copy of the real Google Chrome (see guest-browser.mjs),
-// so it has to be installed for them; the bundled Chromium is not Chrome.
+// System Chrome is an Aloqa fallback. Meet uses pinned Chrome for Testing
+// on both platforms, which permits loading the private audio extension.
 export const googleChromePath = () =>
   (GOOGLE_CHROME_PATHS[process.platform] ?? []).find((path) => path && existsSync(path)) ?? null
 
@@ -62,6 +62,25 @@ export const bundledChromiumPath = () => {
     return path && existsSync(path) ? path : null
   } catch {
     return null
+  }
+}
+
+export const meetReadiness = async () => {
+  const macOS = process.platform === 'darwin'
+  const linux = process.platform === 'linux' && process.arch === 'x64'
+  const chromeReady = (macOS || linux) && bundledChromiumPath() !== null
+  let reason = null
+  if (!macOS && !linux) reason = 'Meet bots need macOS or Linux x86_64'
+  else if (!chromeReady) reason = 'Download the bundled Chrome for Testing browser — reopen the dashboard or run npx playwright install chromium'
+  else if (linux) {
+    const { executableOnPath } = await import('./meet-linux/display.mjs')
+    if (!executableOnPath('Xvfb') || !executableOnPath('xauth')) reason = 'Linux Meet needs Xvfb and xauth — use the supplied Linux container'
+    else if (process.getuid?.() === 0) reason = 'Run Meet as a non-root user with Chrome sandboxing enabled'
+  }
+  return {
+    macOS, chromeReady, supported: macOS || linux, ready: reason === null, reason,
+    driver: macOS ? 'apple-events' : linux ? 'extension' : null,
+    windowsSupported: macOS,
   }
 }
 
@@ -144,26 +163,30 @@ export const launchGuest = async (guest, media, options, codecs = null) => {
   let context = null
   try {
     if (onMeet(options)) {
-      if (process.platform !== 'darwin') {
-        throw new Error('Meet guests need macOS — on this machine, send Meet bots as Google accounts')
+      const readiness = await meetReadiness()
+      if (!readiness.ready) throw new Error(readiness.reason)
+      if (process.platform === 'linux') {
+        const { LinuxGuestWindow } = await import('./meet-linux/driver.mjs')
+        const window = await LinuxGuestWindow.open(media, options, guest)
+        return { browser: null, context: null, page: window, close: () => window.close() }
       }
       // Not a Playwright browser at all: Meet refuses anything with a debugger
-      // attached, so a guest is a real incognito window scripted through
+      // attached, so a guest is a real private window scripted through
       // Chrome's AppleScript interface. Imported here rather than at the top
       // because that module needs this one's Chrome paths.
       const { GuestWindow } = await import('./guest-browser.mjs')
-      const window = await GuestWindow.open(media, options, { tag: guest.slug, label: guest.label })
+      const window = await GuestWindow.open(media, options, { tag: guest.slug, label: guest.label, n: guest.n })
       return { browser: null, context: null, page: window, close: () => window.close() }
     }
     const primary = resolveChannel(options.browser)
     try {
-      browser = await chromium.launch({ channel: primary, headless, args })
+      browser = await chromium.launch({ channel: primary, headless, args, chromiumSandbox: process.env.CALL_BOTS_CONTAINER === '1' })
     } catch (error) {
       const fallback = primary === 'chrome' ? 'chromium' : 'chrome'
       const available = fallback === 'chrome' ? systemChromePath() : bundledChromiumPath()
       if ((options.browser && options.browser !== 'auto') || !available) throw error
       log.warn(`browser launch failed (${error.message.split('\n')[0]}); retrying`)
-      browser = await chromium.launch({ channel: fallback, headless, args })
+      browser = await chromium.launch({ channel: fallback, headless, args, chromiumSandbox: process.env.CALL_BOTS_CONTAINER === '1' })
     }
     context = await browser.newContext(contextOptions)
 

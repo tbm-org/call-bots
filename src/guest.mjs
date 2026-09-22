@@ -69,6 +69,7 @@ export class Guest {
     this.options = options
     this.volume = 100
     this.volumeRevision = 0
+    this.audioSetting = { volume: 100, revision: 0 }
     this.volumeQueue = Promise.resolve()
     // Preferred send codecs by role; null means the platform's own default.
     // A per-guest object on purpose: every guest of a batch shares one options
@@ -118,28 +119,30 @@ export class Guest {
     return this.user.label
   }
 
-  // A Meet guest is a real Chrome window scripted through AppleScript, not a
-  // Playwright page: Meet refuses any browser with a debugger attached. It can
-  // evaluate and click, and that is all — no init scripts, no screenshots, and
-  // no injecting the stream monitor, which needs a function rather than a line
-  // of source. Everything that needs more than an evaluate checks this first.
+  // Meet has a native driver (Apple Events on Mac, a fixed-command extension
+  // on Linux). Only the Aloqa Playwright context supports arbitrary page
+  // instrumentation; Meet supplies its own stats, thumbnails and controls.
   get instrumented() {
     return Boolean(this.context)
   }
 
   async start(target) {
+    this.startAbort = new AbortController()
     const platform = platformById(target?.platform)
     if (!platform) throw new Error(`no adapter for platform "${target?.platform}"`)
     this.platform = platform
     this.target = target
-    const launched = await launchGuest(this.user, this.media, this.options, this.codecs)
+    const launched = await launchGuest(this.user, this.media, {
+      ...this.options, signal: this.startAbort.signal, readVolume: () => ({ ...this.audioSetting }),
+      windowsVisible: () => Boolean(this.options.headed),
+    }, this.codecs)
     this.browser = launched.browser
     this.context = launched.context
     this.page = launched.page
     this.closeBrowser = launched.close
     if (platform.capabilities?.volume && !this.options.noAudio && this.context) {
       try {
-        await installAudioControl(this.context, () => ({ volume: this.volume, revision: this.volumeRevision }))
+        await installAudioControl(this.context, () => ({ ...this.audioSetting }))
       } catch (error) {
         await this.#closeBrowserProcess()
         throw error
@@ -150,7 +153,7 @@ export class Guest {
 
   get volumeAvailable() {
     return this.platform?.capabilities?.volume === true && !this.options.noAudio &&
-      this.instrumented && Boolean(this.page) && !this.page.isClosed()
+      (this.instrumented || this.page?.audioControlReady === true) && Boolean(this.page) && !this.page.isClosed()
   }
 
   setVolume(value) {
@@ -161,13 +164,27 @@ export class Guest {
       if (!this.volumeAvailable || this.state !== 'in-call') {
         throw new Error('outgoing volume is unavailable for this bot')
       }
-      const next = { volume, revision: this.volumeRevision + 1 }
-      const applied = await this.page.evaluate(async (setting) => {
-        if (!window.__botSetVolume__) throw new Error('audio volume control is unavailable in this page')
-        return window.__botSetVolume__(setting)
-      }, next)
-      if (applied?.volume !== volume || applied.revision !== next.revision) {
-        throw new Error('the microphone did not accept the volume change')
+      const page = this.page
+      const apply = (setting) => typeof page.setVolume === 'function' ? page.setVolume(setting)
+        : page.evaluate(async (value) => {
+          if (!window.__botSetVolume__) throw new Error('audio volume control is unavailable in this page')
+          return window.__botSetVolume__(value)
+        }, setting)
+      const next = { volume, revision: this.audioSetting.revision + 1 }
+      // Captures started during this operation must see the pending setting.
+      // A failed/late acknowledgement is rolled back with a newer revision,
+      // so an old page reply can never overwrite the confirmed value.
+      this.audioSetting = next
+      try {
+        const applied = await apply(next)
+        if (page !== this.page || page.isClosed() || applied?.volume !== volume || applied.revision !== next.revision) {
+          throw new Error('the microphone did not accept the volume change')
+        }
+      } catch (error) {
+        this.audioSetting = { volume: this.volume, revision: next.revision + 1 }
+        this.volumeRevision = this.audioSetting.revision
+        await apply(this.audioSetting).catch(() => {})
+        throw error
       }
       this.volume = volume
       this.volumeRevision = next.revision
@@ -327,6 +344,7 @@ export class Guest {
   // Show or hide the bot's own browser window, where the bot has one to show:
   // a Meet guest is a real window; an Aloqa bot is headless and has none.
   async setWindowVisible(visible) {
+    this.options.headed = Boolean(visible)
     if (typeof this.page?.setVisible !== 'function') return false
     await this.page.setVisible(visible)
     return true
@@ -620,9 +638,9 @@ export class Guest {
   // bot heals whether or not anyone is watching it — a headless `join` run has
   // no dashboard at all, and its bots have to come back just the same.
   async pollHealth() {
-    // Guests are watched too: their stats come from webrtc-internals rather
-    // than the monitor, but the ladder only needs a camera state, an outbound
-    // video rate and a way to toggle and rejoin — all of which a guest has.
+    this.#recordBrowserFailure()
+    // Native Meet drivers provide the same camera state, outbound video rate,
+    // and toggle/rejoin operations that the watchdog needs for Aloqa.
     if (this.platform?.capabilities?.rtc === false) return
     if (this.state !== 'in-call' || !this.page || this.page.isClosed()) return
     if (this.healing || this.polling) return
@@ -841,9 +859,8 @@ export class Guest {
     if (this.platform?.capabilities?.rtc === false || this.state !== 'in-call' || !this.page) {
       return null
     }
-    // A guest has no monitor to install — nothing injected into a Meet page
-    // can reach connections it keeps in module closures — so its window reads
-    // them out of chrome://webrtc-internals instead, which sees all of them.
+    // Native drivers collect their own stats: webrtc-internals on macOS,
+    // document-start peer-connection capture in the Linux extension.
     if (!this.instrumented) return this.page.rtcSummary?.().catch(() => null) ?? null
     const summary = await rtcSummary(this.page).catch(() => null)
     if (summary === null) this.#ensureMonitor().catch(() => {})
@@ -863,6 +880,7 @@ export class Guest {
   // its controls have to work again. Cheap to check and only asked about bots
   // that are not already in.
   async recoverIfAdmitted() {
+    this.#recordBrowserFailure()
     if (!this.platform || !this.page || this.state === 'in-call') return
     if (!String(this.state).startsWith('error:join')) return
     const summary = await this.platform.remote(this.page).catch(() => null)
@@ -870,6 +888,14 @@ export class Guest {
     this.log.info('admitted after all — back in the call')
     this.state = 'in-call'
     this.lastError = null
+  }
+
+  #recordBrowserFailure() {
+    if (!this.page?.isClosed() || !this.page.failureReason || this.state === 'closed' || this.state === 'leaving') return
+    if (this.state !== 'error:browser') this.log.error(this.page.failureReason)
+    this.state = 'error:browser'
+    this.lastError = this.page.failureReason
+    this.waitingAdmission = false
   }
 
   async leave() {
@@ -905,6 +931,7 @@ export class Guest {
   }
 
   async teardown() {
+    this.startAbort?.abort()
     // A guest has neither a browser nor a context — its window is the only
     // thing to close, and closeBrowser is what knows how.
     if (!this.browser && !this.context && !this.closeBrowser) {

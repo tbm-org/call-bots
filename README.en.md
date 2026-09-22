@@ -41,7 +41,7 @@ to localhost, so on a server reach it through a tunnel:
 ssh -L 4610:127.0.0.1:4610 <user>@<server>
 ```
 
-## Outgoing volume in Aloqa
+## Outgoing volume in Aloqa and Google Meet
 
 Click the speaker icon on a bot card or **Volume** in the **All bots** bar to reveal the slider.
 It stays collapsed by default. Adjust what other participants hear, live from
@@ -53,8 +53,8 @@ bot's volume does not unmute it.
 The all-bots slider sets the same level for the bots currently in the call;
 **Mixed** means their levels differ. Each bot keeps its level through microphone
 restarts and automatic rejoins. Newly added bots start at 100%, and settings
-are not saved across sessions. Volume control is available in the Aloqa
-dashboard only.
+are not saved across sessions. Meet supports the same controls on Mac and Linux.
+The sliders are disabled while the microphone controller is unavailable.
 
 ## Google Meet
 
@@ -70,38 +70,91 @@ monitor with per-stream codec, resolution and bitrate — each stream named afte
 the participant it belongs to, with Meet's audio marked "(likely)" because Meet
 only pairs it by position — and the dark-camera watchdog.
 
-What a guest needs, all on the Mac running Call Bots:
+On **macOS**, a guest needs:
 
-- **Google Chrome installed.** Guests run in a private copy of it, built on the
-  first send — about half a minute, one time, and it takes as much disk as
-  Chrome itself (1.4 GB today) — because Meet turns away anonymous visitors
-  from any browser it can tell is automated, and the windows are driven the
-  way a person drives them.
+- **Bundled Chrome for Testing.** The dashboard downloads the browser pinned
+  by Call Bots. Guests use a private copy, prepared once per browser update,
+  with separate profiles. Your own Chrome installation and sign-ins are not
+  used. The packaged extension controls audio before Meet captures the
+  microphone; the private connection never attaches a browser debugger.
 - **One macOS Automation prompt**, the first time: *Call Bots wants access to
   control the Call Bots browser.* Click Allow. It appears before any bot window
   opens, and it is the **only** permission Call Bots asks for. If you are ever
   shown a Screen Recording prompt, deny it — nothing here needs to read your
   screen.
-- **macOS.** There are no Meet bots on Linux: the guest windows are driven
-  through Apple Events, which do not exist there.
 
-The windows stay hidden, like every other bot's browser — the bot browser is
-hidden as an application, so nothing of it is on screen or in the Dock's
-window list, and a hidden bot sends and receives exactly what a visible one
-does (measured for minutes at a time). **Show windows** on the Meet line
-brings them all up when you want to watch one; **Hide windows** puts them
-away again. From the terminal, `--headed` shows them.
+On a Mac, Meet browser windows open and stay **visible by default**, including
+when more bots are added. There is no automatic show-and-hide cycle.
+**Hide windows / Show windows** remains available if you explicitly want to
+hide an already joined bot. Show the windows before starting screen sharing:
+Mac Chrome requires the Meet page to be visible when capture begins.
+Linux bots render inside a private virtual display and need no desktop window.
 
 Every guest is its own Chrome process with its own camera clip and voice — the
-five cycle through the bots exactly as they do for Aloqa. (Chrome's fake
-devices are per process, and addressing one process among several took a
-small compiled helper that ships inside the app; CLAUDE.md has the story.)
+five cycle through the bots exactly as they do for Aloqa. Its private
+extension applies the volume before publishing audio, with Chrome's sandbox
+kept enabled.
 
 Plan on **about three guests per 8-core Mac**: each is a full Chrome process
 encoding and decoding video at the size a real user's window is — the same
 1920×1080 page area an Aloqa bot has — so what the call measures is what real
 users would cause. Call Bots warns when a send goes past what the machine can
 carry.
+
+### Linux server
+
+Linux Meet bots remain anonymous: no Google accounts or saved sign-ins are
+needed. Use the supplied **Ubuntu 24.04, Linux x86_64 container**. Each bot runs
+the bundled Chrome for Testing on a private virtual display, with its own
+camera and voice. Controls travel through a private extension connection;
+no browser debugger is attached. The dashboard has the same call controls,
+thumbnails and stream monitor. **Show windows** is hidden on the server.
+Volume controls are available; send-codec controls remain Aloqa-only.
+
+Docker with Compose and permission to run this task's container are required.
+From a checkout owned by a non-root user:
+
+```bash
+./scripts/linux-server.sh
+```
+
+The launcher builds the image and keeps running as its supervisor. It exposes
+only `127.0.0.1:14610`, preserves **20 GiB of host available RAM**, and stops
+only the container it started if that reserve is crossed or you press Ctrl-C.
+Run it in a dedicated directory; it refuses to reuse an existing container
+with the same project name. Persistent clips and run data stay in
+`.server/container-data`. It never installs host packages, invokes sudo,
+changes host security settings, or stops other services. An administrator can
+run the launcher when the task owner has no Docker access; the browser still
+runs as the non-root owner of the checkout. For a root-owned checkout, supply
+an explicit non-root container identity, for example:
+
+```bash
+CALL_BOTS_UID=1000 CALL_BOTS_GID=1000 ./scripts/linux-server.sh
+```
+
+From your computer, open a tunnel and then visit `http://127.0.0.1:14610`:
+
+```bash
+ssh -N -L 14610:127.0.0.1:14610 <user>@<server>
+```
+
+The container uses its own IPC and a scoped seccomp profile to allow Chrome's
+sandbox. If the host policy still blocks sandbox namespaces, have the
+administrator provide a compatible isolated container environment. Do not
+disable the sandbox or change a shared host's security policy to bypass it.
+
+On a dedicated Linux x86_64 machine with dependencies already installed,
+`./run.sh --no-deps --link "https://meet.google.com/abc-defg-hij" --bots 3`
+also works. Install the bundled browser, Xvfb and xauth first; `doctor` reports
+missing requirements. Meet always uses its private virtual display, including
+with `--headed`. Use `--browser auto` or `chromium`, not system Chrome.
+Windows and Linux ARM64 Meet drivers are not included.
+
+Normal dashboard launches still bind to localhost. `CALL_BOTS_HOST=0.0.0.0`
+is provided for container networking only; publish the port on host localhost,
+since the dashboard has no authentication. Stop removes task processes and
+temporary browser profiles, while retaining saved clips and diagnostic logs.
 
 ## What Meet will not do
 
@@ -117,16 +170,14 @@ behind it is in `src/platforms/meet.mjs`. Screen sharing does work — a bot
 shares the same scene an Aloqa bot does, picked up without a picker ever
 appearing on your desktop — but **one bot at a time**: while one presents,
 Meet removes the share control from everyone else, so a second bot asked to
-share reports that it is blocked. And
-Meet turns guests away from meetings created by a personal Google account — the
-bot's card says so; Google Workspace meetings take guests when the admin allows.
+share reports that it is blocked. Guest access depends on the meeting settings:
+allow anonymous guests and admit them when prompted. Workspace administrators
+can also restrict access; an account type alone does not determine it.
 
-**"Call Bots was prevented from modifying apps on your Mac."** Dismiss it — Call
-Bots never modifies an app, and nothing here needs that permission. It is Google
-Chrome finishing its own update: macOS blames whichever app launched Chrome, and
-the guests' copy of Chrome is launched from here. To stop it recurring, open
-Chrome by itself once and let the update finish, or grant **App Management** to
-*GoogleUpdater* — not to Call Bots.
+**Browser download or setup failed.** Reopen the dashboard to retry the pinned
+browser download, or run `npx playwright install chromium` in a source
+checkout. `doctor` reports missing requirements. Meet cannot substitute
+system Chrome, which does not load the required private extension.
 
 **Meet is always in English for the bots.** The guests' copy of Chrome starts
 with an English interface because the adapter reads Meet's English controls; if
@@ -213,8 +264,27 @@ From a clean `main` branch, pass the new version to one command:
 npm run release:mac -- 0.3.0
 ```
 
-It builds and signs the ZIP and `appcast.xml`, then publishes both as GitHub
-Release assets, then commits the signed feed to `updates/appcast.xml` on `main`.
-Apps from 0.8.4 read this feed directly from GitHub's raw CDN and download
-archives through the public asset API. A fixed `codex/updates` tag lets 0.8.3
-upgrade to 0.8.4; earlier apps keep using the release feed.
+It builds the full ZIP and signed Sparkle patches (`.delta`) from compatible
+published Mac versions, including 0.7.3. The preparation step caches the exact
+published archives under `.data/build-cache/updates` and verifies their sizes,
+SHA-256 hashes and signatures; it never rebuilds old versions as patch sources.
+It prints each patch's size and savings and writes
+`dist/release-<version>/update-sizes.json`.
+
+The ZIP, every patch and the signed `appcast.xml` are uploaded to a draft release
+and verified before publication. The command then commits the signed feed to
+`updates/appcast.xml` on `main`. If interrupted, rerun the same command: an
+unfinished draft is rebuilt, while an already published release has all its
+downloads verified before feed publication resumes.
+
+Users keep using **Check for Updates…**. Sparkle selects a matching patch and
+downloads only changed content; sizes depend on what changed. The self-contained
+ZIP remains about 210 MB for first installations and as a fallback when no
+suitable patch exists or patching fails. Media quality is unchanged. See
+[Sparkle's delta update documentation](https://sparkle-project.org/documentation/delta-updates/).
+
+Apps from 0.8.4 read the main feed directly from GitHub's raw CDN and download
+the ZIP or patches through the public asset API. The fixed `codex/updates` tag
+still lets 0.8.3 upgrade to 0.8.4, which may require its existing one-time full
+download. Earlier apps, including 0.7.3, keep using the release feed and can
+select patches there.

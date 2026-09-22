@@ -29,7 +29,28 @@
     apply(next)
     return { ...setting }
   }
-  window.__botAudioState__ = () => ({ ...setting, captures: graphs.size })
+  window.__botAudioState__ = () => ({
+    ...setting, captures: graphs.size,
+    contexts: [...graphs].map((graph) => {
+      const { context, source, gain, input, tracks } = graph
+      if (!graph.meters) {
+        graph.meters = [context.createAnalyser(), context.createAnalyser()]
+        source.connect(graph.meters[0])
+        gain.connect(graph.meters[1])
+      }
+      const rms = graph.meters.map((meter) => {
+        const samples = new Float32Array(meter.fftSize)
+        meter.getFloatTimeDomainData(samples)
+        return Math.sqrt(samples.reduce((sum, sample) => sum + sample * sample, 0) / samples.length)
+      })
+      return {
+        state: context.state, time: context.currentTime, gain: gain.gain.value,
+        input: { enabled: input.enabled, muted: input.muted, state: input.readyState, rms: rms[0] },
+        outputRms: rms[1],
+        outputs: [...tracks].map((track) => ({ enabled: track.enabled, state: track.readyState })),
+      }
+    }),
+  })
 
   const wrap = async (input) => {
     const settings = input.getSettings()
@@ -37,13 +58,16 @@
     let graph
     try {
       await context.resume()
-      const source = context.createMediaStreamSource(new MediaStream([input]))
+      const source = window.__botCreateAudioSource__
+        ? await window.__botCreateAudioSource__(context)
+        : context.createMediaStreamSource(new MediaStream([input]))
       const gain = context.createGain()
       gain.gain.value = setting.volume / 100
       const destination = context.createMediaStreamDestination()
       destination.channelCount = Math.min(2, settings.channelCount || 1)
       source.connect(gain)
       gain.connect(destination)
+      source.start?.()
       graph = { context, source, gain, input, tracks: new Set(), disposed: false }
 
       const dispose = () => {
@@ -53,6 +77,7 @@
         input.removeEventListener('ended', ended)
         input.removeEventListener('mute', muted)
         input.removeEventListener('unmute', unmuted)
+        source.stop?.()
         source.disconnect()
         gain.disconnect()
         input.stop()

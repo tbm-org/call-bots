@@ -1,4 +1,4 @@
-import { RUN_MARKER, createRunDir, writeManifest } from './browser.mjs'
+import { RUN_MARKER, createRunDir, meetReadiness, writeManifest } from './browser.mjs'
 import { THEME_COUNT, ensureGuestFixtures, guestColorHex } from './fixtures.mjs'
 import { Guest } from './guest.mjs'
 import { plain as log } from './log.mjs'
@@ -27,12 +27,6 @@ const bounded = (promise, fallback) =>
     new Promise((resolve) => setTimeout(() => resolve(fallback), PROBE_TIMEOUT)),
   ])
 
-// Meet itself always uses the account's real Google name. Cards need a local
-// suffix only when two accounts share that name, so operators can tell them
-// apart without changing either identity in the call.
-// 'account' when asked for — and anywhere guests cannot exist: a guest is a
-// real Chrome window driven through Apple Events, which is a macOS thing.
-// Otherwise a Meet run needs no setup at all.
 const pool = async (items, worker, concurrency) => {
   const queue = [...items]
   const failures = []
@@ -133,10 +127,19 @@ export class Roster {
   }
 
   async #add(count, batch, target = null, overrides = null) {
-    if (target) this.target = target
+    if (target) {
+      // Native Mac Meet windows stay visible by default. Preserve a later
+      // explicit dashboard visibility choice when adding more bots.
+      if (!this.target && target.platform === 'meet' && process.platform === 'darwin') this.options.headed = true
+      this.target = target
+    }
     if (!this.target) throw new Error('no call link — paste the call link first')
 
     const isMeet = this.target.platform === 'meet'
+    if (isMeet) {
+      const readiness = await meetReadiness()
+      if (!readiness.ready) throw new Error(readiness.reason)
+    }
     const total = this.guests.length + count
     const warning = concurrencyWarning(total, undefined, { meet: isMeet })
     if (warning) log.warn(warning)
@@ -277,12 +280,14 @@ export class Roster {
   // added afterwards arrive the way the session is currently set.
   async setWindowsVisible(visible) {
     this.options.headed = Boolean(visible)
-    const shown = await Promise.all(
+    const shown = await Promise.allSettled(
       this.guests
         .filter((guest) => guest.state !== 'closed')
-        .map((guest) => guest.setWindowVisible(visible).catch(() => false)),
+        .map((guest) => guest.setWindowVisible(visible)),
     )
-    return shown.filter(Boolean).length
+    const failed = shown.filter((result) => result.status === 'rejected')
+    if (failed.length) throw new Error(`Could not ${visible ? 'show' : 'hide'} ${failed.length} bot browser(s): ${failed[0].reason.message}`)
+    return shown.filter((result) => result.status === 'fulfilled' && result.value).length
   }
 
   // Asking each bot in turn costs a round trip per bot per poll, which stops

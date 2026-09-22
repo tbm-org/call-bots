@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 
-import { bundledChromiumPath, googleChromePath, systemChromePath } from './browser.mjs'
+import { bundledChromiumPath, meetReadiness, systemChromePath } from './browser.mjs'
 import { bundledMediaDir } from './config.mjs'
 import { machineProfile } from './machine.mjs'
 import { detectTtsEngine } from './tts.mjs'
@@ -41,18 +41,11 @@ export const collectChecks = async () => {
     )
   }
 
-  // Google Meet: guests run in a copy of the real Chrome, driven through Apple
-  // Events — so a Mac with Chrome installed is what it takes.
-  const googleChrome = googleChromePath()
-  if (process.platform === 'darwin') {
-    checks.push(
-      googleChrome
-        ? ok('meet', `Google Chrome found — about ${machineProfile().meetMax} Meet guests at once`)
-        : warn('meet', 'Google Chrome not found — Meet guests need it installed'),
-    )
-  } else {
-    checks.push(warn('meet', 'Meet guests need macOS — Meet is unavailable on this machine'))
-  }
+  const meet = await meetReadiness()
+  checks.push(meet.ready
+    ? ok('meet', meet.macOS ? `bundled Chrome for Testing found — about ${machineProfile().meetMax} Meet guests at once`
+      : 'bundled browser and virtual display tools found; Chrome sandbox namespaces must be permitted')
+    : warn('meet', meet.reason))
 
   const machine = machineProfile()
   checks.push(
