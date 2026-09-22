@@ -10,7 +10,11 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
             <sparkle:shortVersionString>0.8.6</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>12.0</sparkle:minimumSystemVersion>
             <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
-            <description sparkle:format="markdown"><![CDATA[Поддержка коротких гостевых ссылок.
+            <description sparkle:format="markdown"><![CDATA[- Поддержка коротких гостевых ссылок.
+- Громкость ботов: 0–200%.
+- Новые голоса на русском и английском.
+- Боты Google Meet на сервере.
+- Уменьшен размер обновлений.
 ]]></description>
             <enclosure url="https://api.github.com/repos/tbm-org/call-bots/releases/assets/581277004" length="210074838" type="application/octet-stream" sparkle:edSignature="KEfBY2g2HJrBRl5zjWknmfzMjfn0EsPg6FvZfQbDxTEJ+SAS2fTnatZj8FWZ1aDihFBQ7FbUc0yzSfZDY1S3Bw=="></enclosure>
             <sparkle:deltas>
@@ -36,6 +40,6 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
         </item>
     </channel>
 </rss><!-- sparkle-signatures:
-edSignature: ZpBWdVyzBQCkt1QDosqnMRyuNfNLx/QMkMJt+0mxMVbcU1kqA1O5oejm1nX+Vtfhm9KrHL3NVvH2gK/oCg8zAw==
-length: 8666
+edSignature: 3J2i5Q6djpZmzM1ig2GJpGkjCucRkIFN4dyApFb0/zTjCbHrzyqq+zKBH9Ukld/d5dsIcYxsrjNUXQogB/jIBA==
+length: 8880
 -->
