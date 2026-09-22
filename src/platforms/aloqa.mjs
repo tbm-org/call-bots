@@ -53,18 +53,26 @@ export const SEL = {
   tile: '[data-testid="participant-tile"]',
 }
 
-const TOKEN_RE = /^[A-Za-z0-9._~-]{16,512}$/u
+// The invite token is a short dictation-friendly code, `abc-def-ghi`: nine
+// lowercase letters in three groups (realtime-service `guestcode`). The
+// backend normalises case, spaces and missing dashes on its side, so a code
+// typed in capitals or without dashes is accepted here too. Links issued
+// before the code was shortened carry a 64-hex token and keep working, so
+// the long form stays valid as well.
+const SHORT_CODE_RE = /^[A-Za-z]{3}[- ]?[A-Za-z]{3}[- ]?[A-Za-z]{3}$/u
+const LEGACY_TOKEN_RE = /^[A-Za-z0-9._~-]{16,512}$/u
+const isToken = (token) => SHORT_CODE_RE.test(token) || LEGACY_TOKEN_RE.test(token)
 
 // Aloqa runs on any origin, so this is the catch-all: a path shaped like a call
 // invite is ours. Returns null when the link is for someone else entirely.
 const parse = (url) => {
   if (url.pathname === '/invite' || url.pathname.startsWith('/invite/')) {
-    throw new Error('that is a workspace invite — paste the call\'s invite link (…/join/<token>)')
+    throw new Error('that is a workspace invite — paste the call\'s invite link (…/join/abc-def-ghi)')
   }
   const match = url.pathname.match(/^\/(?:join|guest\/c)\/([^/?#]+)\/?$/u)
   if (!match) return null
   const token = decodeURIComponent(match[1])
-  if (!TOKEN_RE.test(token)) throw new Error('that invite token looks malformed')
+  if (!isToken(token)) throw new Error('that invite token looks malformed — expected …/join/abc-def-ghi')
   return { origin: url.origin, url: `${url.origin}/join/${encodeURIComponent(token)}` }
 }
 

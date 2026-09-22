@@ -30,6 +30,6 @@ export const resolveLink = (input) => {
   }
   throw new Error(
     'that link is not recognised — paste a Google Meet link ' +
-      '(meet.google.com/abc-defg-hij) or an Aloqa call invite (…/join/<token>)',
+      '(meet.google.com/abc-defg-hij) or an Aloqa call invite (…/join/abc-def-ghi)',
   )
 }
