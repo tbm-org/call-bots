@@ -164,7 +164,9 @@ const publishedBases = async ({ version, sparkle, log }) => {
   const releases = pages.flat().filter((release) =>
     !release.draft && !release.prerelease && /^v\d+\.\d+\.\d+$/u.test(release.tag_name) &&
     compareVersions(release.tag_name.slice(1), version) < 0,
-  ).sort((a, b) => compareVersions(b.tag_name.slice(1), a.tag_name.slice(1)))
+  ).sort((a, b) => compareVersions(b.tag_name.slice(1), a.tag_name.slice(1))).slice(0, 3)
+  // Only the three latest stable versions get patches. Older installations
+  // still update through the signed full archive.
   const bases = []
   for (const release of releases) {
     const from = release.tag_name.slice(1)
