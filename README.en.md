@@ -264,8 +264,9 @@ From a clean `main` branch, pass the new version to one command:
 npm run release:mac -- 0.3.0
 ```
 
-It builds the full ZIP and signed Sparkle patches (`.delta`) from compatible
-published Mac versions, including 0.7.3. The preparation step caches the exact
+It builds the full ZIP and signed Sparkle patches (`.delta`) for compatible
+versions among the three latest published Mac releases. Older versions use
+the full installer. The preparation step caches the exact
 published archives under `.data/build-cache/updates` and verifies their sizes,
 SHA-256 hashes and signatures; it never rebuilds old versions as patch sources.
 It prints each patch's size and savings and writes
@@ -286,5 +287,5 @@ suitable patch exists or patching fails. Media quality is unchanged. See
 Apps from 0.8.4 read the main feed directly from GitHub's raw CDN and download
 the ZIP or patches through the public asset API. The fixed `codex/updates` tag
 still lets 0.8.3 upgrade to 0.8.4, which may require its existing one-time full
-download. Earlier apps, including 0.7.3, keep using the release feed and can
-select patches there.
+download. Earlier apps, including 0.7.3, keep using the release feed and receive
+the full installer when no matching patch is available.
