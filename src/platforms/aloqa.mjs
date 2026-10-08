@@ -1,8 +1,7 @@
 // Aloqa Web — anonymous guest join. Verified against aloqa-frontend develop
 // @ 97a1746bb. If a deploy changes the UI, this file is the only one to edit.
 //
-// Behaviour here is unchanged from when Aloqa was the only platform: same
-// selectors, same join sequence, same inverted aria-pressed device toggles.
+// Device toggles use inverted aria-pressed values: true means off.
 
 const JOIN_TIMEOUT = 60_000
 // A call on "Wait for admission" parks guests until a host clicks Admit, which
@@ -30,6 +29,8 @@ export const SEL = {
   // stable seam, and the submit label varies with the room's entry mode.
   guestName: 'input[name="display_name"]',
   guestSubmit: 'form button[type="submit"]',
+  guestPrejoin: '[data-testid="guest-prejoin"]',
+  guestPrejoinSubmit: '[data-testid="lobby-join"]',
   guestSurface: '[data-testid="guest-call-surface"]',
   guestBlocked: '[data-testid="guest-join-blocked"]',
 
@@ -80,7 +81,8 @@ const parse = (url) => {
   return { origin: url.origin, url: `${url.origin}/join/${encodeURIComponent(token)}` }
 }
 
-// Bots join as guests, which have no lobby: name form -> call surface.
+// Guests enter through the name form, an optional device check, and (when
+// required by the host) admission. Older deployments skip the device check.
 const join = async ({ page, target, displayName, log, fail }) => {
   try {
     await page.goto(target.url, { waitUntil: 'domcontentloaded' })
@@ -112,14 +114,15 @@ const join = async ({ page, target, displayName, log, fail }) => {
   await submit.waitFor({ state: 'visible', timeout: 10_000 })
   await submit.click()
 
-  // Entry mode Open lets a guest straight in; Wait for admission parks it. Watch
-  // for the call surface, the lobby, and a refusal together, and stretch the
-  // deadline once the lobby is confirmed.
+  // Watch all entry stages together: the pre-join is optional, and admission
+  // has its own longer budget once the waiting screen is confirmed.
   const surface = page.locator(SEL.guestSurface)
+  const prejoin = page.locator(SEL.guestPrejoin)
   const lobby = page.getByText(/Waiting for approval/iu)
-  const startedAt = Date.now()
+  let startedAt = Date.now()
   let admitted = false
   let inLobby = false
+  let passedPrejoin = false
   while (!admitted) {
     if (await surface.isVisible().catch(() => false)) {
       admitted = true
@@ -128,6 +131,18 @@ const join = async ({ page, target, displayName, log, fail }) => {
     if (await blocked.isVisible().catch(() => false)) {
       const why = ((await blocked.textContent().catch(() => '')) ?? '').trim().slice(0, 120)
       await fail('blocked', `join refused: ${why}`)
+    }
+    if (!passedPrejoin && (await prejoin.isVisible().catch(() => false))) {
+      // Scope the stable testid to the guest device check so translated labels
+      // (including "Join anyway") and unrelated Join buttons do not matter.
+      try {
+        await prejoin.locator(SEL.guestPrejoinSubmit).click({ timeout: JOIN_TIMEOUT })
+      } catch {
+        await fail('prejoin', 'the device-check Join call button never became available')
+      }
+      passedPrejoin = true
+      startedAt = Date.now()
+      log.info('passed the device check — joining the call')
     }
     if (!inLobby && (await lobby.isVisible().catch(() => false))) {
       inLobby = true
@@ -228,7 +243,7 @@ export default {
   id: 'aloqa',
   label: 'Aloqa',
   capabilities,
-  // Guests have no lobby, so devices start off and are armed after joining.
+  // Re-assert requested device settings after the pre-join or admission flow.
   armAfterJoin: true,
   parse,
   join,
