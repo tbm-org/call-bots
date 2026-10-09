@@ -15,9 +15,16 @@ available_kb() { awk '/^MemAvailable:/ {print $2}' /proc/meminfo; }
 AVAILABLE_KB="$(available_kb)"
 [[ "$AVAILABLE_KB" =~ ^[0-9]+$ && "$AVAILABLE_KB" -gt "$RESERVE_KB" ]] || { echo 'Less than 20 GiB of available host RAM; not starting.' >&2; exit 1; }
 export CALL_BOTS_MEMORY_BUDGET="$(((AVAILABLE_KB - RESERVE_KB) * 1024))"
-export CALL_BOTS_UID="${CALL_BOTS_UID:-$(stat -c %u "$ROOT")}"
-export CALL_BOTS_GID="${CALL_BOTS_GID:-$(stat -c %g "$ROOT")}"
-[[ "$CALL_BOTS_UID" =~ ^[0-9]+$ && "$CALL_BOTS_UID" -gt 0 && "$CALL_BOTS_GID" =~ ^[0-9]+$ ]] || { echo 'Set CALL_BOTS_UID and CALL_BOTS_GID to the non-root owner of this task directory.' >&2; exit 1; }
+# Use the checkout owner, or the image's non-root identity for root-owned clones.
+CONTAINER_UID="$(stat -c %u "$ROOT")"
+CONTAINER_GID="$(stat -c %g "$ROOT")"
+if [[ "$CONTAINER_UID" == 0 ]]; then
+  CONTAINER_UID=1000
+  CONTAINER_GID=1000
+fi
+export CALL_BOTS_UID="${CALL_BOTS_UID:-$CONTAINER_UID}"
+export CALL_BOTS_GID="${CALL_BOTS_GID:-$CONTAINER_GID}"
+[[ "$CALL_BOTS_UID" =~ ^[0-9]+$ && "$CALL_BOTS_UID" -gt 0 && "$CALL_BOTS_GID" =~ ^[0-9]+$ ]] || { echo 'CALL_BOTS_UID must be a non-root numeric user ID and CALL_BOTS_GID a numeric group ID.' >&2; exit 1; }
 COMPOSE=(docker compose -p call-bots-linux-meet -f "$ROOT/compose.linux.yml")
 
 # A label alone is not permission to modify somebody else's existing workload.

@@ -132,7 +132,7 @@ thumbnails and stream monitor. **Show windows** is hidden on the server.
 Volume controls are available; send-codec controls remain Aloqa-only.
 
 Docker with Compose and permission to run this task's container are required.
-From a checkout owned by a non-root user:
+From your checkout, including when connected as root:
 
 ```bash
 ./scripts/linux-server.sh
@@ -146,12 +146,9 @@ with the same project name. Persistent clips and run data stay in
 `.server/container-data`. It never installs host packages, invokes sudo,
 changes host security settings, or stops other services. An administrator can
 run the launcher when the task owner has no Docker access; the browser still
-runs as the non-root owner of the checkout. For a root-owned checkout, supply
-an explicit non-root container identity, for example:
-
-```bash
-CALL_BOTS_UID=1000 CALL_BOTS_GID=1000 ./scripts/linux-server.sh
-```
+runs as a non-root user. The launcher uses the checkout owner's UID/GID, or
+1000:1000 when the checkout belongs to root. No extra arguments are needed.
+You can override these defaults with `CALL_BOTS_UID` and `CALL_BOTS_GID`.
 
 From your computer, open a tunnel and then visit `http://127.0.0.1:14610`:
 
