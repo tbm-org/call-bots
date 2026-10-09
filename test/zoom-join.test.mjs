@@ -30,7 +30,7 @@ test('Zoom invitation routes to the web client, preserving the encrypted passcod
 
 async function fixture({ lobby = false, refusal = '', password = false, cam = true, mic = true } = {}) {
   const page = await browser.newPage()
-  await page.route('https://app.zoom.us/**', (route) => route.fulfill({ contentType: 'text/html', body: `
+  await page.route('https://app.zoom.us/**', (route) => route.fulfill({ contentType: 'text/html; charset=utf-8', body: `
     <main><input id="input-for-name"><button id="mic" aria-label="Mute">Mute</button><button id="cam" aria-label="Stop Video">Stop Video</button><button id="join">Join</button><p>Zoom is protected by reCAPTCHA</p></main>
     <script>
       let muted = false, stopped = false;
@@ -93,6 +93,13 @@ test('passcode entry asks for full invitation instead of typing encrypted token'
   const { page, ctx } = await fixture({ password: true })
   try { await assert.rejects(zoom.join(ctx), /full invitation/); } finally { await page.close() }
 })
+
+for (const refusal of ["Automated bots aren't allowed to join this meeting. Sign in to join", 'Automated bots are not allowed to join this meeting. Sign in to join', 'Automated bots aren’t allowed to join this meeting. Sign in to join']) {
+  test(`bot protection is reported separately from authentication: ${refusal}`, async () => {
+    const { page, ctx } = await fixture({ refusal })
+    try { await assert.rejects(zoom.join(ctx), /Zoom blocked this automated guest/); } finally { await page.close() }
+  })
+}
 
 test('extension packages the right platform commands and limits host permissions', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'call-bots-extension-test-'))

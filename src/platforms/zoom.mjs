@@ -62,6 +62,7 @@ const join = async ({ page, target, displayName, options, log, fail, setWaitingA
         const text = value.headline
         const refusal = text.match(/(?:invalid meeting (?:id|number)|meeting (?:has ended|does not exist|is not available|is full)|removed by (?:the )?host|removed from (?:this|the) meeting|host has ended this meeting|host has denied|incorrect (?:meeting )?passcode|meeting is locked)[^\n]*/iu)
         if (refusal) return await fail('entry', `Zoom: ${refusal[0]}`)
+        if (/automated bots (?:aren't|are not) allowed|detected (?:an? )?bot/iu.test(text)) return await fail('entry', 'Zoom blocked this automated guest; automatic browser joining cannot continue')
         if (/sign in to join|sign in.*(?:authorized|authenticated)|only authenticated/iu.test(text)) return await fail('entry', 'Zoom requires a signed-in account; allow guests for this meeting')
         if (value.challenge || /verify (?:that )?you(?: are|'re) (?:human|not a robot)|complete the (?:captcha|security check)/iu.test(text)) return await fail('entry', 'Zoom requires human verification; automatic guest joining cannot continue')
         if (value.inCall) {
