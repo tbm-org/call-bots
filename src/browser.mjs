@@ -70,12 +70,12 @@ export const meetReadiness = async () => {
   const linux = process.platform === 'linux' && process.arch === 'x64'
   const chromeReady = (macOS || linux) && bundledChromiumPath() !== null
   let reason = null
-  if (!macOS && !linux) reason = 'Meet bots need macOS or Linux x86_64'
+  if (!macOS && !linux) reason = 'Meet and Zoom bots need macOS or Linux x86_64'
   else if (!chromeReady) reason = 'Download the bundled Chrome for Testing browser — reopen the dashboard or run npx playwright install chromium'
   else if (linux) {
     const { executableOnPath } = await import('./meet-linux/display.mjs')
-    if (!executableOnPath('Xvfb') || !executableOnPath('xauth')) reason = 'Linux Meet needs Xvfb and xauth — use the supplied Linux container'
-    else if (process.getuid?.() === 0) reason = 'Run Meet as a non-root user with Chrome sandboxing enabled'
+    if (!executableOnPath('Xvfb') || !executableOnPath('xauth')) reason = 'Linux Meet/Zoom needs Xvfb and xauth — use the supplied Linux container'
+    else if (process.getuid?.() === 0) reason = 'Run Meet/Zoom as a non-root user with Chrome sandboxing enabled'
   }
   return {
     macOS, chromeReady, supported: macOS || linux, ready: reason === null, reason,
@@ -139,7 +139,10 @@ const buildArgs = (guest, media, options) => {
 // either way, and Meet does not currently mind — this only drops the parts we
 // can drop.
 //
-const onMeet = (options) => String(options?.baseUrl ?? '').includes('meet.google.com')
+const onNativePlatform = (options) => {
+  try { return ['meet.google.com', 'app.zoom.us'].includes(new URL(options?.baseUrl).hostname) }
+  catch { return false }
+}
 
 // One browser PROCESS per guest: the fake-capture-file flags are process-wide,
 // so distinct media needs distinct processes. Aloqa contexts are always fresh
@@ -156,13 +159,13 @@ export const launchGuest = async (guest, media, options, codecs = null) => {
     // it. Everything else about a bot is unaffected by the larger surface: its
     // camera comes from a file, not from rendering.
     viewport: { width: 1920, height: 1080 },
-    ...(onMeet(options) ? { locale: 'en-US' } : {}),
+    ...(onNativePlatform(options) ? { locale: 'en-US' } : {}),
   }
 
   let browser = null
   let context = null
   try {
-    if (onMeet(options)) {
+    if (onNativePlatform(options)) {
       const readiness = await meetReadiness()
       if (!readiness.ready) throw new Error(readiness.reason)
       if (process.platform === 'linux') {

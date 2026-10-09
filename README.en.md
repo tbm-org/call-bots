@@ -2,11 +2,10 @@
 
 *По-русски: [README.md](README.md)*
 
-Put bots into Aloqa or Google Meet calls from one computer. Each bot is a real
+Put bots into Aloqa, Google Meet or Zoom calls from one computer. Each bot is a real
 browser that opens the call link and publishes real audio and video. Bots join
-as anonymous guests — in Aloqa and in Google Meet alike — so there is nothing
-to provision. Meet is the rare case, and it stays out of the dashboard until
-you paste a Meet link.
+as anonymous guests, so there are no bot accounts to provision. The dashboard
+automatically detects the platform from the meeting link.
 
 ## One command
 
@@ -55,6 +54,27 @@ The all-bots slider sets the same level for the bots currently in the call;
 restarts and automatic rejoins. Newly added bots start at 100%, and settings
 are not saved across sessions. Meet supports the same controls on Mac and Linux.
 The sliders are disabled while the microphone controller is unavailable.
+
+## Zoom
+
+Paste a full Zoom invitation (`https://…zoom.us/j/12345678901?pwd=…`) into the
+same link field, or pass it to `call-bots join`. Each bot opens an isolated
+Chrome guest window, enters its name, waits for the host when required, and
+connects computer audio. Keep the `pwd` parameter: it contains Zoom's encrypted
+passcode token. Browser-client `/wc/<meeting-id>/join` and `/start` links also
+work; bots always join as guests.
+
+Zoom uses the same bundled Chrome setup as Meet: macOS, or Linux x86_64 with
+Xvfb and xauth. The meeting must permit browser guests. Sign-in requirements,
+invalid links, missing passcodes and human-verification challenges are reported
+instead of silently treated as successful joins. Admit bots from Zoom's waiting
+room if requested.
+
+Microphone, camera, outgoing volume and screen-sharing controls use Zoom's
+meeting controls. The host can restrict unmuting, video or sharing. To allow
+bot screen sharing, set Zoom's sharing options to let all participants share.
+Zoom manages media codecs automatically. Call Bots does not currently expose
+manual codec selection or RTC statistics for Zoom.
 
 ## Google Meet
 

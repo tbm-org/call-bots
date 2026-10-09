@@ -188,7 +188,7 @@ const codecName = (value) => {
 const startSession = async (body) => {
   if (session.status !== 'idle') throw new Error(`a session is already ${session.status}`)
   const target = resolveLink(body.link ?? '')
-  if (target.platform === 'meet') {
+  if (['meet', 'zoom'].includes(target.platform)) {
     const readiness = await meetReadiness()
     if (!readiness.ready) throw new Error(readiness.reason)
   }
@@ -502,7 +502,7 @@ export const startServer = async ({ port = 4610, open = true, host = process.env
       }
       if (request.method === 'GET' && url.pathname.startsWith('/api/report/')) {
         const guest = session.roster?.bySlug(decodeURIComponent(url.pathname.split('/').pop()))
-        if (!guest?.page?.report) throw new Error('Meet diagnostics are unavailable for this bot')
+        if (!guest?.page?.report) throw new Error('Browser diagnostics are unavailable for this bot')
         const report = await guest.page.report()
         response.writeHead(200, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' })
         response.end(report)

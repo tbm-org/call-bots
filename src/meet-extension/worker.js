@@ -1,6 +1,13 @@
 // This extension controls only the one throwaway browser that loaded it.
 // Commands contain data, never JavaScript source or debugger requests.
 importScripts('config.js')
+const allowedMeeting = (value) => {
+  try {
+    const url = new URL(value)
+    return url.protocol === 'https:' && !url.port && !url.username && !url.password && (platform === 'zoom'
+      ? /(^|\.)(?:zoom\.us|zoom\.com)$/iu.test(url.hostname) : url.hostname === 'meet.google.com')
+  } catch { return false }
+}
 let port
 let connecting = false
 let closing = false
@@ -50,7 +57,7 @@ async function command(op, args) {
   }
   if (op === 'volume' || op === 'audio-state') {
     if (op === 'audio-state') {
-      const tabs = await chrome.tabs.query({ url: 'https://meet.google.com/*' })
+      const tabs = await chrome.tabs.query({ url: meetingMatches })
       const id = meetTab ?? tabs[0]?.id
       if (id === undefined || id === null) throw new Error('The Meet tab has not opened')
       const reads = await chrome.scripting.executeScript({
@@ -85,7 +92,7 @@ async function command(op, args) {
   }
   if (op === 'goto') {
     const url = new URL(args.url)
-    if (url.origin !== 'https://meet.google.com') throw new Error('Only HTTPS Google Meet links are supported')
+    if (!allowedMeeting(url.href)) throw new Error('Unsupported meeting origin')
     if (meetTab !== null) {
       try { await chrome.tabs.get(meetTab) } catch { meetTab = null }
     }
@@ -192,7 +199,7 @@ chrome.webNavigation.onBeforeNavigate.addListener((details) => {
   }
 })
 chrome.runtime.onMessage.addListener((message, sender, reply) => {
-  if (!sender.tab || !sender.url?.startsWith('https://meet.google.com/')) return
+  if (!sender.tab || !allowedMeeting(sender.url)) return
   if (message?.type === 'read-volume' || message?.type === 'audio-ready') {
     if (meetTab === null && sender.frameId === 0) { meetTab = sender.tab.id; saveTabs().catch(() => {}) }
     if (sender.tab.id !== meetTab) return

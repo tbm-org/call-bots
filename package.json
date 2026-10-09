@@ -3,7 +3,7 @@
   "version": "0.8.7",
   "private": true,
   "type": "module",
-  "description": "Put synthetic audio and video bots into Aloqa and Google Meet calls",
+  "description": "Put synthetic audio and video bots into Aloqa, Google Meet and Zoom calls",
   "bin": {
     "call-bots": "./src/cli.mjs"
   },

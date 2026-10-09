@@ -9,7 +9,7 @@ import { Roster } from './orchestrator.mjs'
 import { findMarkedPids, killPids } from './procs.mjs'
 import { platformById, resolveLink } from './platforms/index.mjs'
 
-const USAGE = `Call Bots — put bots into Aloqa or Google Meet calls
+const USAGE = `Call Bots — put bots into Aloqa, Google Meet or Zoom calls
 
 usage:
   call-bots ui [--port 4610]        open the app window (recommended)
@@ -35,11 +35,11 @@ options:
   --fps <n>          camera video frame rate (default 12)
   --regen            rebuild the media even if it is cached
 
-Aloqa bots join anonymously, and so do Google Meet bots — they type a name and
-wait for the host to admit them. Meet needs macOS with bundled Chrome for Testing, or Linux
+Aloqa bots join anonymously, and so do Google Meet and Zoom bots — they type a name and
+wait for the host to admit them. Meet and Zoom need macOS with bundled Chrome for Testing, or Linux
 x86_64 with the bundled browser, Xvfb and xauth (included in the Linux container).
-Linux Meet runs as a non-root user with Chrome's sandbox enabled.
-The meeting must allow anonymous guests.
+Linux Meet/Zoom runs as a non-root user with Chrome's sandbox enabled.
+The meeting must allow anonymous guests. Zoom links must include ?pwd=… when a passcode is required.
 For containers, CALL_BOTS_HOST=0.0.0.0 binds the dashboard inside the container;
 publish its port on host localhost only. Normal installs bind to 127.0.0.1.`
 

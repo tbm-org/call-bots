@@ -536,9 +536,13 @@ const FULL_CAPABILITIES = Object.freeze({ mic: true, camera: true, screen: true,
 // What the server will say once a Meet session exists — mirrored here so the
 // controls Meet cannot honour never flash into view while a link is typed.
 const MEET_CAPABILITIES = Object.freeze({ mic: true, camera: true, screen: true, rtc: true, codecs: false, volume: true })
+const ZOOM_CAPABILITIES = Object.freeze({ ...MEET_CAPABILITIES, rtc: false })
+const nativePlatform = (id = platformId()) => ['meet', 'zoom'].includes(id)
+const nativeLabel = () => platformId() === 'zoom' ? 'Zoom' : 'Google Meet'
 const platformFromLink = () => {
   try {
     const url = new URL($('#link').value.trim())
+    if (/(^|\.)(?:zoom\.us|zoom\.com)$/iu.test(url.hostname)) return 'zoom'
     if (url.hostname === 'meet.google.com') return 'meet'
     if (/\/join\//u.test(url.pathname)) return 'aloqa'
   } catch { /* a partial link has no detected platform yet */ }
@@ -547,11 +551,12 @@ const platformFromLink = () => {
 const platformId = () => {
   const platform = S.state?.session?.platform
   if (/google meet/iu.test(platform ?? '')) return 'meet'
+  if (/zoom/iu.test(platform ?? '')) return 'zoom'
   if (/aloqa/iu.test(platform ?? '')) return 'aloqa'
   return platformFromLink()
 }
 const capabilities = () =>
-  S.state?.session?.capabilities ?? (platformId() === 'meet' ? MEET_CAPABILITIES : FULL_CAPABILITIES)
+  S.state?.session?.capabilities ?? (platformId() === 'zoom' ? ZOOM_CAPABILITIES : platformId() === 'meet' ? MEET_CAPABILITIES : FULL_CAPABILITIES)
 // Readiness is supplied by the running host, including Linux virtual displays.
 const meetInfo = () => {
   const info = S.state?.meet
@@ -582,21 +587,21 @@ const meetEmptyState = (joining) => {
   const info = meetInfo()
   if (joining) {
     return {
-      title: 'Preparing Google Meet bots',
-      text: 'Each bot opens a Chrome window and asks to be let in — admit them in Meet. ' +
+      title: `Preparing ${nativeLabel()} bots`,
+      text: `Each bot opens a Chrome window and asks to be let in — admit them in ${nativeLabel()}. ` +
         (info.macOS ? 'The first send on this Mac also prepares its private browser (about a minute).'
           : 'The browser windows run on a private virtual display on the server.'),
     }
   }
   if (!info.ready) {
     return {
-      title: 'Google Meet needs setup',
-      text: info.reason || 'The Meet browser is unavailable on this machine.',
+      title: `${nativeLabel()} needs setup`,
+      text: info.reason || 'The meeting browser is unavailable on this machine.',
     }
   }
   return {
-    title: 'Ready for Google Meet',
-    text: 'Bots will ask to join by name — admit them in Meet once they knock.',
+    title: `Ready for ${nativeLabel()}`,
+    text: `Bots will ask to join by name — admit them in ${nativeLabel()} once they knock.`,
   }
 }
 
@@ -608,7 +613,7 @@ const showMeetEmptyState = (joining) => {
 
 const renderMeetBar = () => {
   const bar = $('#meetBar')
-  if (platformId() !== 'meet') {
+  if (!nativePlatform()) {
     bar.hidden = true
     return
   }
@@ -616,7 +621,7 @@ const renderMeetBar = () => {
   bar.hidden = false
   bar.classList.toggle('-short', meetUnavailable())
   $('#meetBarText').textContent = info.ready
-    ? 'the host admits them' : info.reason || 'Meet is unavailable'
+    ? 'the host admits them' : info.reason || `${nativeLabel()} is unavailable`
   // Mac Meet starts visible; the user can explicitly hide an existing call.
   // Linux has a private virtual display and no desktop windows to expose.
   const session = S.state?.session
@@ -655,6 +660,7 @@ const syncPlatformUi = () => {
   $('#allbar [data-capability="codecs"]').hidden = !caps.codecs
   $('#allbar [data-capability="volume"]').hidden = !caps.volume
   if (!caps.codecs) {
+    closeCodecMenu()
     $('#joinCodecs').hidden = true
     $('#codecToggle').setAttribute('aria-expanded', 'false')
   }
@@ -665,12 +671,12 @@ const syncPlatformUi = () => {
   // Meet guests run in bundled Chrome for Testing; Aloqa bots
   // run on the bundled Chromium.
   const browserUnavailable = S.state && (
-    id === 'meet'
+    nativePlatform(id)
       ? meetUnavailable()
       : (!S.state.browserReady || S.state.browserInstalling)
   )
   $('#goBtn').disabled = Boolean(busy || browserUnavailable)
-  if (id === 'meet' && (S.state?.session?.guests ?? []).length === 0) {
+  if (nativePlatform(id) && (S.state?.session?.guests ?? []).length === 0) {
     showMeetEmptyState(status === 'joining')
   }
 }
@@ -789,6 +795,7 @@ const placeCodecMenu = () => {
   menu.style.left = `${Math.max(8, Math.min(at.left, window.innerWidth - size.width - 8))}px`
 }
 const openCodecMenu = (anchor, values, current, onPick) => {
+  if (!capabilities().codecs) return closeCodecMenu()
   if (codecMenu.anchor === anchor) return closeCodecMenu()
   closeCodecMenu()
   const menu = el('div', 'cmenu')
@@ -1220,7 +1227,7 @@ const cardAction = async (slug, act, btn) => {
     const { results } = await post('/api/action', { slug, action })
     const result = results[guest.label]
     if (result === 'request') toast(`${guest.label}: the host restricted this device`, '-warn')
-    if (result === 'blocked') toast('This call blocks screen sharing — set Meeting settings, Screen share to Allowed. If it was On request, send the bots again.', '-warn')
+    if (result === 'blocked') toast(platformId() === 'zoom' ? 'The Zoom host disabled participant screen sharing.' : 'This call blocks screen sharing — set Meeting settings, Screen share to Allowed. If it was On request, send the bots again.', '-warn')
   } catch (error) {
     toast(`${guest.label}: ${error.message}`, '-err')
   } finally {
@@ -1274,7 +1281,7 @@ const updateCard = (guest, grid) => {
   share.hidden = capabilities().screen === false
   share.className = `ibtn${guest.screen === 'on' ? ' -live' : ''}${guest.screen === 'blocked' ? ' -off' : ''}${share.classList.contains('busy') ? ' busy' : ''}`
   share.title = guest.screen === 'blocked'
-    ? 'This call blocks screen sharing — set Meeting settings, Screen share to Allowed. If it was On request, send the bots again: the call does not lift that one for anyone already in it.'
+    ? (platformId() === 'zoom' ? 'The Zoom host disabled participant screen sharing.' : 'This call blocks screen sharing — set Meeting settings, Screen share to Allowed. If it was On request, send the bots again: the call does not lift that one for anyone already in it.')
     : 'Share a screen'
   share.disabled = !inCall || guest.screen === 'blocked'
 
@@ -1702,7 +1709,7 @@ const render = (state) => {
 
   // Meet says its own piece; everything else is about the bundled Chromium.
   const selected = platformId()
-  if (selected === 'meet') {
+  if (nativePlatform(selected)) {
     showMeetEmptyState(joining)
   } else if (state.browserInstalling) {
     $('#emptyTitle').textContent = 'Getting the browser ready'
@@ -1724,11 +1731,11 @@ const render = (state) => {
   const batches = state.session?.batches ?? []
   $('#empty').hidden = guests.length > 0
   const awaiting = guests.filter((guest) => guest.waitingAdmission)
-  if (selected === 'meet' && awaiting.length > 0) {
+  if (nativePlatform(selected) && awaiting.length > 0) {
     const notice = `${state.startedAt}:${awaiting.map((guest) => guest.slug).join(',')}`
     if (notice !== S.admissionNotice) {
       S.admissionNotice = notice
-      toast(`${awaiting.length} Google Meet ${awaiting.length === 1 ? 'bot is' : 'bots are'} awaiting admission.`, '-warn')
+      toast(`${awaiting.length} ${nativeLabel()} ${awaiting.length === 1 ? 'bot is' : 'bots are'} awaiting admission.`, '-warn')
     }
   } else {
     S.admissionNotice = null

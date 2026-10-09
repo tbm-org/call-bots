@@ -3,6 +3,7 @@ import { chmod, copyFile, mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+import { zoomPageCommand } from '../platforms/zoom-page.mjs'
 import { meetPageCommand } from '../platforms/meet-page.mjs'
 import { pageSnapshot, pageSummary } from '../rtc-page.mjs'
 import { screenHtml } from '../screen.mjs'
@@ -13,7 +14,9 @@ let key
 const extensionKey = () => key ??= generateKeyPairSync('rsa', { modulusLength: 2048 }).publicKey
   .export({ type: 'spki', format: 'der' }).toString('base64')
 
-export async function prepareExtension(profile, socket, token, label, color, { macOS = false, audio = null } = {}) {
+export async function prepareExtension(profile, socket, token, label, color, { macOS = false, audio = null, platform = 'meet' } = {}) {
+  const matches = platform === 'zoom' ? ['https://*.zoom.us/*', 'https://*.zoom.com/*'] : ['https://meet.google.com/*']
+  const pageCommand = platform === 'zoom' ? zoomPageCommand : meetPageCommand
   const dir = join(profile, 'call-bots-extension')
   await mkdir(dir, { recursive: true, mode: 0o700 })
   const publicKey = extensionKey()
@@ -21,17 +24,17 @@ export async function prepareExtension(profile, socket, token, label, color, { m
     .map((digit) => String.fromCharCode(97 + parseInt(digit, 16))).join('')
   const manifest = {
     manifest_version: 3,
-    name: 'Call Bots Meet driver', version: '1.0.0', minimum_chrome_version: '146',
+    name: 'Call Bots meeting driver', version: '1.0.0', minimum_chrome_version: '146',
     key: publicKey,
     permissions: ['nativeMessaging', 'scripting', 'tabs', 'storage', 'webNavigation'],
-    host_permissions: ['https://meet.google.com/*'],
+    host_permissions: matches,
     background: { service_worker: 'worker.js' },
     content_scripts: [
-      { matches: ['https://meet.google.com/*'], js: ['audio-isolated.js'], run_at: 'document_start', all_frames: true },
-      { matches: ['https://meet.google.com/*'], js: ['audio-main.js', ...(audio ? ['audio-recording.js'] : []), 'audio-shim.js', 'audio-ready.js', ...(!macOS ? ['early.js'] : [])], world: 'MAIN', run_at: 'document_start', all_frames: true },
+      { matches, js: ['audio-isolated.js'], run_at: 'document_start', all_frames: true },
+      { matches, js: ['audio-main.js', ...(audio ? ['audio-recording.js'] : []), 'audio-shim.js', 'audio-ready.js', ...(!macOS ? ['early.js'] : [])], world: 'MAIN', run_at: 'document_start', all_frames: true },
       ...(!macOS ? [
-        { matches: ['https://meet.google.com/*'], js: ['viewport.js'], run_at: 'document_idle' },
-        { matches: ['https://meet.google.com/*'], js: ['monitor.js', 'commands.js'], world: 'MAIN', run_at: 'document_idle' },
+        { matches, js: ['viewport.js'], run_at: 'document_idle' },
+        { matches, js: ['monitor.js', 'commands.js'], world: 'MAIN', run_at: 'document_idle' },
       ] : []),
     ],
   }
@@ -40,7 +43,7 @@ export async function prepareExtension(profile, socket, token, label, color, { m
     // Serve the bot's own recording from its private extension instead; keep
     // the native capture track for device settings and lifecycle, and keep
     // every browser sandbox enabled.
-    manifest.web_accessible_resources = [{ resources: ['voice.wav'], matches: ['https://meet.google.com/*'] }]
+    manifest.web_accessible_resources = [{ resources: ['voice.wav'], matches }]
     await copyFile(audio, join(dir, 'voice.wav'))
     await writeFile(join(dir, 'audio-recording.js'), `(() => {
       let decoded;
@@ -57,7 +60,7 @@ export async function prepareExtension(profile, socket, token, label, color, { m
     })();\n`)
   }
   await writeFile(join(dir, 'manifest.json'), JSON.stringify(manifest))
-  await writeFile(join(dir, 'config.js'), `const macOS = ${macOS};\n`)
+  await writeFile(join(dir, 'config.js'), `const macOS = ${macOS};\nconst platform = ${JSON.stringify(platform)};\nconst meetingMatches = ${JSON.stringify(matches)};\n`)
   await Promise.all([
     ...['audio-main.js', 'audio-isolated.js', 'audio-ready.js'].map((file) => copyFile(join(source, file), join(dir, file))),
     copyFile(join(source, '../audio-shim.js'), join(dir, 'audio-shim.js')),
@@ -69,7 +72,7 @@ export async function prepareExtension(profile, socket, token, label, color, { m
   // Static, packaged functions; no eval, Function constructor, remote code,
   // or arbitrary source sent through the native bridge.
   await writeFile(join(dir, 'commands.js'), `(() => {
-    const page = ${meetPageCommand.toString()};
+    const page = ${pageCommand.toString()};
     const summary = ${pageSummary.toString()};
     const snapshot = ${pageSnapshot.toString()};
     window.__callBotsMeetLabel__ = ${JSON.stringify(String(label))};

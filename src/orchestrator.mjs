@@ -130,18 +130,18 @@ export class Roster {
     if (target) {
       // Native Mac Meet windows stay visible by default. Preserve a later
       // explicit dashboard visibility choice when adding more bots.
-      if (!this.target && target.platform === 'meet' && process.platform === 'darwin') this.options.headed = true
+      if (!this.target && ['meet', 'zoom'].includes(target.platform) && process.platform === 'darwin') this.options.headed = true
       this.target = target
     }
     if (!this.target) throw new Error('no call link — paste the call link first')
 
-    const isMeet = this.target.platform === 'meet'
-    if (isMeet) {
+    const isNative = ['meet', 'zoom'].includes(this.target.platform)
+    if (isNative) {
       const readiness = await meetReadiness()
       if (!readiness.ready) throw new Error(readiness.reason)
     }
     const total = this.guests.length + count
-    const warning = concurrencyWarning(total, undefined, { meet: isMeet })
+    const warning = concurrencyWarning(total, undefined, { meet: isNative })
     if (warning) log.warn(warning)
     const label = String(overrides?.label ?? this.options.label ?? '').trim()
 

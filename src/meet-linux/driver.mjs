@@ -40,7 +40,7 @@ export class LinuxGuestWindow {
       options.signal?.throwIfAborted()
       const profile = join(page.dir, 'profile')
       await mkdir(join(profile, 'Default'), { recursive: true, mode: 0o700 })
-      const allow = { 'https://meet.google.com:443,*': { setting: 1 } }
+      const allow = { [`${options.baseUrl}:443,*`]: { setting: 1 } }
       await writeFile(join(profile, 'Default', 'Preferences'), JSON.stringify({
         profile: { content_settings: { exceptions: { media_stream_camera: allow, media_stream_mic: allow } } },
       }))
@@ -49,7 +49,7 @@ export class LinuxGuestWindow {
       page.bridge = new MeetBridge(socket, token, options.readVolume)
       page.bridge.onDisconnect = (error) => page.fail(error)
       await page.bridge.listen()
-      const extension = await prepareExtension(profile, socket, token, guest.label, guestColorHex(guest.n - 1))
+      const extension = await prepareExtension(profile, socket, token, guest.label, guestColorHex(guest.n - 1), { platform: new URL(options.baseUrl).hostname === 'app.zoom.us' ? 'zoom' : 'meet' })
       options.signal?.throwIfAborted()
       if (page.display.child.exitCode !== null || page.display.child.signalCode !== null) throw new Error('The virtual display stopped during browser setup')
       const args = [

@@ -49,6 +49,7 @@ import { promisify } from 'node:util'
 
 import { RUN_MARKER, SCREEN_TITLE, bundledChromiumPath } from './browser.mjs'
 import { baseDir, projectRoot } from './config.mjs'
+import { zoomPageCommand } from './platforms/zoom-page.mjs'
 import { MeetBridge } from './meet-extension/bridge.mjs'
 import { prepareExtension } from './meet-extension/extension.mjs'
 import { guestColorHex } from './fixtures.mjs'
@@ -474,7 +475,7 @@ const startProcess = async (media, options, guest) => {
   let bridge
   try {
     mkdirSync(join(userDataDir, 'Default'), { recursive: true })
-    const allow = { 'https://meet.google.com:443,*': { setting: 1 } }
+    const allow = { [`${options.baseUrl}:443,*`]: { setting: 1 } }
     writeFileSync(join(userDataDir, 'Default', 'Preferences'), JSON.stringify({
       browser: { allow_javascript_apple_events: true },
       profile: { content_settings: { exceptions: { media_stream_camera: allow, media_stream_mic: allow } } },
@@ -484,6 +485,7 @@ const startProcess = async (media, options, guest) => {
     bridge = new MeetBridge(socket, token, options.readVolume)
     await bridge.listen()
     const extension = await prepareExtension(userDataDir, socket, token, guest.label, guestColorHex((guest.n || 1) - 1), {
+      platform: new URL(options.baseUrl).hostname === 'app.zoom.us' ? 'zoom' : 'meet',
       macOS: true, audio: !options.noAudio ? media?.audio : null,
     })
     options.signal?.throwIfAborted()
@@ -706,6 +708,7 @@ export class GuestWindow {
     }
     await placeWindow(proc, windowId, slots++)
     const window = new GuestWindow(proc, windowId, tag, label)
+    window.platform = new URL(options.baseUrl).hostname === 'app.zoom.us' ? 'zoom' : 'meet'
     window.selectedVisibility = options.windowsVisible ?? (() => Boolean(options.headed))
     // Meet starts visible on Mac. Only an explicit dashboard visibility
     // choice hides it; there is no automatic reveal-and-hide startup cycle.
@@ -1155,7 +1158,7 @@ export class GuestWindow {
   // screenshot would carry, in the form a window with no debugger can give:
   // where it is, what Meet drew, and which of its controls exist.
   async report() {
-    const raw = await this.evaluate(PAGE_REPORT).catch((error) => `{"error":${JSON.stringify(error.message)}}`)
+    const raw = await this.evaluate(this.platform === 'zoom' ? `JSON.stringify((${zoomPageCommand.toString()})('report'))` : PAGE_REPORT).catch((error) => `{"error":${JSON.stringify(error.message)}}`)
     const page = typeof raw === 'object' && raw !== null ? raw : { error: String(raw ?? 'no answer') }
     const lines = [
       `audio:      ${JSON.stringify(await this.audioState().catch((error) => ({ error: error.message })))}`,
@@ -1164,6 +1167,7 @@ export class GuestWindow {
       `readyState: ${page.readyState ?? ''}   visibility: ${page.visibility ?? ''}`,
       `controls:   ${(page.controls ?? []).join(' · ') || '(none)'}`,
       `inputs:     ${(page.inputs ?? []).join(' · ') || '(none)'}`,
+      ...(page.media ? [`media:      ${JSON.stringify(page.media)}`] : []),
       '',
       'what the page said:',
       page.text ?? '(nothing rendered)',
@@ -1183,7 +1187,7 @@ export class GuestWindow {
   // No tile yet means no thumbnail yet, and the card keeps its placeholder.
   async screenshot() {
     if (this.closed) return null
-    const grabbed = await this.evaluate(GRAB_VIDEO).catch(() => null)
+    const grabbed = await this.evaluate(this.platform === 'zoom' ? `JSON.stringify((${zoomPageCommand.toString()})('thumbnail',${JSON.stringify({ label: this.label })}))` : GRAB_VIDEO).catch(() => null)
     if (typeof grabbed === 'string' && grabbed.startsWith('data:image/jpeg;base64,')) {
       return Buffer.from(grabbed.slice('data:image/jpeg;base64,'.length), 'base64')
     }

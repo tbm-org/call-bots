@@ -1,11 +1,12 @@
 import aloqa from './aloqa.mjs'
 import meet from './meet.mjs'
+import zoom from './zoom.mjs'
 
 // One file per platform, each owning its own selectors, join sequence, device
 // toggles and participant grid. Adding one means adding a file and listing it
 // here; a platform tied to a single host goes before Aloqa, which runs on any
 // origin and matches by the shape of the path.
-export const PLATFORMS = [meet, aloqa]
+export const PLATFORMS = [meet, zoom, aloqa]
 
 export const platformById = (id) => PLATFORMS.find((platform) => platform.id === id) ?? null
 
@@ -30,6 +31,6 @@ export const resolveLink = (input) => {
   }
   throw new Error(
     'that link is not recognised — paste a Google Meet link ' +
-      '(meet.google.com/abc-defg-hij) or an Aloqa call invite (…/join/abc-def-ghi)',
+      '(meet.google.com/abc-defg-hij), Zoom link (zoom.us/j/12345678901), or an Aloqa call invite (…/join/abc-def-ghi)',
   )
 }

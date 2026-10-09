@@ -931,7 +931,9 @@ export class Guest {
   }
 
   async teardown() {
-    this.startAbort?.abort()
+    // Native browsers close on abort. A joined bot must send Leave first,
+    // otherwise Zoom keeps a disconnected participant until its timeout.
+    if (this.state !== 'in-call') this.startAbort?.abort()
     // A guest has neither a browser nor a context — its window is the only
     // thing to close, and closeBrowser is what knows how.
     if (!this.browser && !this.context && !this.closeBrowser) {
@@ -944,6 +946,7 @@ export class Guest {
       } catch (error) {
         this.log.warn(`teardown failed: ${error.message}`)
       }
+      this.startAbort?.abort()
       await this.#closeBrowserProcess()
     } finally {
       this.waitingAdmission = false
