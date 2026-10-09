@@ -4,24 +4,26 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <channel>
         <title>Call Bots</title>
         <item>
-            <title>0.8.7</title>
-            <pubDate>Thu, 08 Oct 2026 13:41:25 +0500</pubDate>
-            <sparkle:version>0.8.7</sparkle:version>
-            <sparkle:shortVersionString>0.8.7</sparkle:shortVersionString>
+            <title>0.8.8</title>
+            <pubDate>Fri, 09 Oct 2026 18:15:52 +0500</pubDate>
+            <sparkle:version>0.8.8</sparkle:version>
+            <sparkle:shortVersionString>0.8.8</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>12.0</sparkle:minimumSystemVersion>
             <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
-            <description sparkle:format="markdown"><![CDATA[- Исправлен вход ботов в звонки Aloqa: боты проходят новый экран проверки устройств и нажимают «Войти в звонок».
-- Сохранена поддержка ожидания допуска и прежнего входа без экрана проверки устройств.
+            <description sparkle:format="markdown"><![CDATA[- Добавлен вход ботов в Zoom через браузер с управлением микрофоном, камерой, громкостью и демонстрацией экрана.
+- Для Zoom скрыты неподдерживаемые настройки кодеков и уточнены сообщения об ошибках входа.
+- Исправлено завершение звонка перед закрытием браузера бота.
+- Упрощён запуск на Linux: скрипт автоматически выбирает пользователя контейнера при запуске от root.
 ]]></description>
-            <enclosure url="https://api.github.com/repos/tbm-org/call-bots/releases/assets/621253227" length="210075029" type="application/octet-stream" sparkle:edSignature="dy9oYIzbp1XGh3wARPfL7yJbJgBjIzA+YFzb88AFEsFpZ0VlmseDl1xjpI4wor4a99zwE+OhyfUo3kasy3dFDA=="></enclosure>
+            <enclosure url="https://api.github.com/repos/tbm-org/call-bots/releases/assets/625024895" length="210081826" type="application/octet-stream" sparkle:edSignature="EwsGkFx0+Sh8qO8eiH9h3vq3RsPcbDD+AyiEFN0OIChhKGoWmxqQsMZqQTLAGZX4HOjzPlM2D2XIHg5GNERdAQ=="></enclosure>
             <sparkle:deltas>
-                <enclosure url="https://api.github.com/repos/tbm-org/call-bots/releases/assets/621253229" sparkle:deltaFrom="0.8.6" length="2142" type="application/octet-stream" sparkle:deltaFromSparkleExecutableSize="977616" sparkle:deltaFromSparkleLocales="de,he,ar,el,ja,fa,uk" sparkle:edSignature="qCpRA9wUKX2n5MmzBOEnN5tjPOVIOGrgdqK0R+2HGc81f2JiFeYnrkhMBTYEILrOq8l6avOCyWkOe2L2GugtBQ=="></enclosure>
-                <enclosure url="https://api.github.com/repos/tbm-org/call-bots/releases/assets/621253239" sparkle:deltaFrom="0.8.5" length="3234" type="application/octet-stream" sparkle:deltaFromSparkleExecutableSize="977616" sparkle:deltaFromSparkleLocales="de,he,ar,el,ja,fa,uk" sparkle:edSignature="3CL7srinkcHo2PKBBDekaXV9bQB7hBCleB04wR6DfPANeuL5c3cDQbFoQdySjXHqcRSeJA1MHkSXU31y4EDdCA=="></enclosure>
-                <enclosure url="https://api.github.com/repos/tbm-org/call-bots/releases/assets/621253235" sparkle:deltaFrom="0.8.4" length="39454" type="application/octet-stream" sparkle:deltaFromSparkleExecutableSize="977616" sparkle:deltaFromSparkleLocales="de,he,ar,el,ja,fa,uk" sparkle:edSignature="3nfvAX3orbHwnl1BxWEZe1IqXgIFz4NgHzs1KTIAsFc0tn3ZImYtEyx6dYtGUavHc6Qh3eFOgPfulqmjCY8jAw=="></enclosure>
+                <enclosure url="https://api.github.com/repos/tbm-org/call-bots/releases/assets/625024898" sparkle:deltaFrom="0.8.7" length="9810" type="application/octet-stream" sparkle:deltaFromSparkleExecutableSize="977616" sparkle:deltaFromSparkleLocales="de,he,ar,el,ja,fa,uk" sparkle:edSignature="kIKHhV7kTy9xxARUKXnX/CdPK0tH5t4I5GLh7GBIgnbx93k8RFG4TzhjIzZVaJY8+0BmizWlYIN/mqIF2Q7vAQ=="></enclosure>
+                <enclosure url="https://api.github.com/repos/tbm-org/call-bots/releases/assets/625024906" sparkle:deltaFrom="0.8.6" length="10466" type="application/octet-stream" sparkle:deltaFromSparkleExecutableSize="977616" sparkle:deltaFromSparkleLocales="de,he,ar,el,ja,fa,uk" sparkle:edSignature="YlmRDu/rvwx84vI7PpnwTcBI3c8ssT0UNNokr25GpDpqvwlBC5OdIbzjOsHtvuZI6Wq/Zl0FZi7pGwr53ar6Dw=="></enclosure>
+                <enclosure url="https://api.github.com/repos/tbm-org/call-bots/releases/assets/625024892" sparkle:deltaFrom="0.8.5" length="10754" type="application/octet-stream" sparkle:deltaFromSparkleExecutableSize="977616" sparkle:deltaFromSparkleLocales="de,he,ar,el,ja,fa,uk" sparkle:edSignature="74kjMvJj0eZCavMfyNz2n3es1vav/Zp1A71Nk9hsy5yJIWDZBGWpfl+jyuPULF+GAfagckiwSAIRdBWB32sYCQ=="></enclosure>
             </sparkle:deltas>
         </item>
     </channel>
 </rss><!-- sparkle-signatures:
-edSignature: B4PlUvTWeHqzsu+4/AHot7+6jVkIXdbgvZ3xV3FdF6BxPNoO9Qvq6KN5OX9A9RiiqKJ2KWvbeXSJMB3PKFhPCQ==
-length: 2832
+edSignature: k5TsyfLxLBTQqFKCrYrQHsCLADI65CyB2CWZOPfchU81xGwiBW+o+z+hd2Ft89oSr9Mg/2+WV6HJNm7V//6sAg==
+length: 3132
 -->
